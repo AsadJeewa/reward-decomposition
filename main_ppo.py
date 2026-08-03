@@ -136,7 +136,9 @@ def run_ppo(
     torch_deterministic: bool = True,
     capture_video: bool = False,
     use_tensorboard: bool = True,
+    use_wandb: bool = False,
     save_model: bool = True,
+    eval_updates_freq: int = 5
 ):
     """
     Main function to run the PPO (Proximal Policy Optimization) algorithm.
@@ -184,6 +186,7 @@ def run_ppo(
         torch_deterministic (bool): Whether to use deterministic algorithms in PyTorch.
         capture_video (bool): Whether to capture and save videos of the agent's performance.
         use_tensorboard (bool): Whether to use TensorBoard for logging.
+        use_wandb (bool): Whether to use Weights & Biases for logging.
         save_model (bool): Whether to save the trained model to disk and validate this by running a simple evaluation.
     """
 
@@ -256,8 +259,14 @@ def run_ppo(
         # Initialize a RunningMeanStd object for reward normalization
         reward_rms = RunningMeanStd(reward_size)
 
-    logger = PPOLogger(run_name, use_tensorboard, reward_size = envs.rewards_shape[-1])
-    
+    logger = PPOLogger(run_name, use_tensorboard=use_tensorboard, use_wandb=use_wandb, project_name="MORL-Baselines", config={
+        "lr": learning_rate,
+        "gamma": gamma,
+        "env": env_id,
+        "algorithm": "D3PO",
+        "seed": seed,
+    }, 
+        reward_size = envs.rewards_shape[-1])
     pareto_archive = ParetoArchive()
     ppo = PPO(
         agent=agent,
@@ -288,7 +297,8 @@ def run_ppo(
         negative=negative,
         scalar_reward=scalar_reward,
         pareto_archive=pareto_archive,
-        diversity_scale=diversity_scale
+        diversity_scale=diversity_scale,
+        eval_updates_freq=eval_updates_freq
     )
     print(ppo.agent)
     # Train the agent

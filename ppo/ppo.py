@@ -6,8 +6,8 @@ import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
 from torch.distributions.dirichlet import Dirichlet
 from morl_baselines.common.pareto import ParetoArchive
-
-
+import wandb
+from ppo.utils import evaluate_agent_metrics
 class LinearLRSchedule:
     def __init__(self, optimizer, initial_lr, total_updates):
         self.optimizer = optimizer
@@ -29,12 +29,19 @@ class LinearLRSchedule:
 
 
 class PPOLogger:
-    def __init__(self, run_name=None, use_tensorboard=False, reward_size = 1):
+    def __init__(self, run_name=None, use_tensorboard=False, use_wandb=False, project_name="MORL-Baselines", config=None, reward_size = 1):
         self.use_tensorboard = use_tensorboard
+        self.use_wandb = use_wandb
         self.global_steps = []
         if self.use_tensorboard:
             run_name = str(uuid4()).hex if run_name is None else run_name
             self.writer = SummaryWriter(f"runs/{run_name}")
+        if self.use_wandb:
+            wandb.init(
+                project=project_name,
+                name=run_name,
+                config=config,
+            )
         self.reward_size = reward_size
 
     def log_rollout_step(self, infos, global_step):
@@ -45,6 +52,7 @@ class PPOLogger:
             non_zero_comps = []
             for i in range(self.reward_size):
                 non_zero_comps.append(infos['episode'][f'dr'][infos['_episode']][:,i].mean())
+            # LOGGING HERE
             print(
                 f"global_step={global_step}, episodic_return={non_zero_rews.mean(axis = 0)}",
                 flush=True,
@@ -61,7 +69,18 @@ class PPOLogger:
                     self.writer.add_scalar(
                         f"charts/episodic_reward_{i}", non_zero_comps[i].mean(), global_step
                     )
+            if self.use_wandb:
+                log_dict = {
+                    "charts/episodic_return": non_zero_rews.mean(),
+                    "charts/episodic_length": non_zero_lens.mean(),
+                    "global_step": global_step,
+                }
 
+                for i in range(self.reward_size):
+                    log_dict[f"charts/episodic_reward_{i}"] = non_zero_comps[i]
+
+                wandb.log(log_dict, step=global_step)
+                
     def log_policy_update(self, update_results, global_step):
         if self.use_tensorboard:
             self.writer.add_scalar(
@@ -90,6 +109,15 @@ class PPOLogger:
                 update_results["explained_variance"],
                 global_step,
             )
+        if self.use_wandb:
+            wandb.log({
+                "losses/policy_loss": update_results["policy_loss"],
+                "losses/value_loss": update_results["value_loss"],
+                "losses/entropy_loss": update_results["entropy_loss"],
+                "losses/kl_divergence": update_results["approx_kl"],
+                "losses/clipping_fraction": update_results["clipping_fractions"],
+                "losses/explained_variance": update_results["explained_variance"],
+            }, step=global_step)
 
     def write_video(self, frames):
     
@@ -129,6 +157,7 @@ class PPO:
         negative = False,
         pareto_archive = ParetoArchive(),
         diversity_scale = 1,
+        eval_updates_freq = 5,
     ):
         """
         Proximal Policy Optimization (PPO) algorithm implementation.
@@ -165,6 +194,8 @@ class PPO:
             # Reproducibility and tracking
             seed (int): Random seed for reproducibility of environment initialisation.
             logger (PPOLogger): A logger instance for logging. if None is passed, a default logger is created.
+
+            eval_updates_freq (int): Frequency of evaluation updates during training.
 
         The PPO algorithm works by collecting a batch of data from the environment,
         then performing multiple epochs of optimization on this data. It uses a surrogate
@@ -229,7 +260,8 @@ class PPO:
         self.pareto_archive = pareto_archive
         self.negative = negative
         self.diversity_scale = diversity_scale
-        
+
+        self.eval_updates_freq = eval_updates_freq 
 
     def create_lr_scheduler(self, num_policy_updates):
         return LinearLRSchedule(self.optimizer, self.initial_lr, num_policy_updates)
@@ -276,6 +308,7 @@ class PPO:
         current_weights = None
         current_negatives = None
         for update in range(num_policy_updates):
+            print(update," of ",num_policy_updates)
             if self.anneal_lr:
                 self.lr_scheduler.step()
 
@@ -306,8 +339,24 @@ class PPO:
 
             self.logger.log_policy_update(update_results, self._global_step)
 
+            if update % self.eval_updates_freq == 0:   # every n PPO updates
+                metrics = evaluate_agent_metrics(
+                    self.pareto_archive,
+                    ref_point=np.array([-1, -1, -200.0]),
+                    n_to_select=2048
+                )
+
+                if metrics:
+                    wandb.log(
+                        {
+                            **metrics,
+                            "global_step": self._global_step
+                        }
+                    )
 
         print(f"Training completed. Total steps: {self._global_step}")
+        if self.logger.use_wandb:
+            wandb.finish()
 
         return self.agent  # Return the trained agent
 
