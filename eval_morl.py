@@ -1,6 +1,5 @@
 import numpy as np
 import torch
-import matplotlib.pyplot as plt
 from ppo.agent import ContinuousAgent, DiscreteAgent
 import mo_gymnasium as mo_gym
 from morl_baselines.common.performance_indicators import hypervolume, sparsity, expected_utility
@@ -10,23 +9,30 @@ import envs
 import os
 from envs.building_env import BuildingEnv_9d
 from envs.utils_building import ParameterGenerator
+from plot_utils import plot_preferences
+
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 
 from gymnasium.wrappers.vector import NormalizeObservation
 # Set up vectorized env
-env_id = "mo-humanoid-v5"  # or "mo-reacher-v5"
+env_id = "minecart-v0"  # or "mo-reacher-v5"
+# env_id = "mo-humanoid-v5"  # or "mo-reacher-v5"
 # env_id = "fruit-tree-v0"  # or "mo-reacher-v5"
 num_envs = 16
-reward_size = 2
+reward_size = 3
 episodes_to_collect = 1024
 labels = [str(i) for i in range(reward_size)]  # Adjust based on the environment
 # ref_point = np.array([-1, -1, -1, -1, -1, -1])  # Reference point for hypervolume calculation
-ref_point = np.array([-100, -100])  # Reference point for hypervolume calculation
+# ref_point = np.array([-100, -100])  # Reference point for hypervolume calculation
+ref_point=np.array([-1, -1, -200.0]),
 # ref_point = np.array([-101, -1001, -101, -101])  # Reference point for hypervolume calculation
 # ref_point = np.array([0, 0, 0, 0, 0, 0, 0, 0, 0])  # Reference point for hypervolume calculation
 gamma = 0.99
 n_to_select = 2048
 
-model_path = "runs/mo-humanoid-v5__main_ppo__2025-11-21 20:14:47.519758__2__positive/"
+model_path = "runs/minecart-v0__main_ppo__2026-08-04 15:07:19.504146__1__positive/"
 
 if not os.path.exists(f"results/{env_id}"):
     os.makedirs(f"results/{env_id}", exist_ok=True)
@@ -67,6 +73,10 @@ else:
     
 eval_agent.load_state_dict(torch.load(model_path + "main_ppo.rl_model"))
 # eval_agent.eval()
+n_points = 30
+exp_note = "minecart_random"
+right_angled = True
+plot_preferences(agent=eval_agent, algo="random", env=env_temp, n_points=30, exp_note=exp_note, right_angled=right_angled)
 
 # Buffers
 rewards_list = []
