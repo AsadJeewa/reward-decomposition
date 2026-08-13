@@ -26,7 +26,7 @@ def sample_simplex_grid(n_points):
     return np.array(ts), np.array(ss)
 
 
-def evaluate_line(agent, algo, env, n_points=50, exp_note=""):
+def evaluate_line(set_id, seed, agent, algo, env, n_points=50, exp_note=""):
     algo_lower = algo.lower()
 
     is_d3po = "d3po" in algo_lower
@@ -67,6 +67,8 @@ def evaluate_line(agent, algo, env, n_points=50, exp_note=""):
             done = terminated or truncated
 
         rows.append({
+            "set_id": set_id,   
+            "training_seed": seed,      
             "algo": algo,
             "t": t,
             **{f"w{i}": wi for i, wi in enumerate(w)},
@@ -74,7 +76,7 @@ def evaluate_line(agent, algo, env, n_points=50, exp_note=""):
         })
 
     df = pd.DataFrame(rows)
-    df.to_csv(f"results/{env.spec.id}/pref_line_{exp_note}.csv", index=False)
+    df.to_csv(f"results/{env.spec.id}/pref_line_{algo}_{exp_note}.csv", mode="a", index=False)
 
     plt.figure(figsize=(7, 5))
 
@@ -89,11 +91,11 @@ def evaluate_line(agent, algo, env, n_points=50, exp_note=""):
     plt.legend()
     plt.grid(True)
     plt.tight_layout()
-    plt.savefig(f"results/{env.spec.id}/pref_line_{exp_note}.png")
+    plt.savefig(f"results/{env.spec.id}/pref_line_{algo}_{exp_note}.png")
     plt.close()
 
-
-def evaluate_simplex(agent, algo, env, n_points=10, exp_note="", right_angled=True):
+    
+def evaluate_simplex(set_id, seed,agent, algo, env, n_points=10, exp_note="", right_angled=True):
     algo_lower = algo.lower()
 
     is_d3po = "d3po" in algo_lower
@@ -134,6 +136,8 @@ def evaluate_simplex(agent, algo, env, n_points=10, exp_note="", right_angled=Tr
             done = terminated or truncated
 
         rows.append({
+            "set_id": set_id,
+            "training_seed": seed,
             "algo": algo,
             "t": t,
             "s": s,
@@ -142,7 +146,7 @@ def evaluate_simplex(agent, algo, env, n_points=10, exp_note="", right_angled=Tr
         })
 
     df = pd.DataFrame(rows)
-    df.to_csv(f"results/{env.spec.id}/pref_simplex_{exp_note}.csv", index=False)
+    df.to_csv(f"results/{env.spec.id}/pref_simplex_{algo}_{exp_note}.csv",mode="a", index=False)
     
     r_cols = [c for c in df.columns if c.startswith("r")]
     num_obj = len(r_cols)
@@ -203,13 +207,15 @@ def evaluate_simplex(agent, algo, env, n_points=10, exp_note="", right_angled=Tr
 
     plt.tight_layout()
     print("save fig")
-    plt.savefig(f"results/{env.spec.id}/pref_simplex_{exp_note}.png")
+    plt.savefig(f"results/{env.spec.id}/pref_simplex_{algo}_{exp_note}.png")
     plt.close()
 
 
-def plot_preferences(agent, algo, env, n_points=50, exp_note="", right_angled=True):
+def plot_preferences(set_id, seed, agent, env, algo, n_points=50, exp_note="", right_angled=True):
     if env.unwrapped.reward_dim == 2:
         evaluate_line(
+            set_id,
+            seed,
             agent,
             algo,
             env,
@@ -218,6 +224,8 @@ def plot_preferences(agent, algo, env, n_points=50, exp_note="", right_angled=Tr
         )
     elif env.unwrapped.reward_dim == 3:
         evaluate_simplex(
+            set_id,
+            seed,
             agent,
             algo,
             env,
