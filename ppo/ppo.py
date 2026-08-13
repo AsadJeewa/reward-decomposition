@@ -41,7 +41,15 @@ class PPOLogger:
                 project=project_name,
                 name=run_name,
                 config=config,
+                save_code=False,            # Disables code uploading
+                settings=wandb.Settings(
+                    _disable_stats=True,    # Disables system metrics like GPU/CPU usage graphs if not needed
+                    _disable_meta=True,     # Disables metadata files
+                    # Blocks heavy reinforcement learning files from uploading
+                    ignore_globs=["*.pt", "*.pth", "*.pkl", "*.h5", "*.checkpoint", "*.csv"]
+                )
             )
+
         self.reward_size = reward_size
 
     def log_rollout_step(self, infos, global_step):
@@ -266,7 +274,7 @@ class PPO:
     def create_lr_scheduler(self, num_policy_updates):
         return LinearLRSchedule(self.optimizer, self.initial_lr, num_policy_updates)
 
-    def learn(self, total_timesteps):
+    def learn(self, total_timesteps, ref_point):
         """
         Train the agent using the PPO algorithm.
 
@@ -342,14 +350,14 @@ class PPO:
             if update % self.eval_updates_freq == 0:   # every n PPO updates
                 metrics = evaluate_agent_metrics(
                     self.pareto_archive,
-                    ref_point=np.array([-1, -1, -200.0]),
+                    ref_point=ref_point,
                     n_to_select=2048
                 )
 
                 if metrics:
                     wandb.log(
                         {
-                            **metrics,
+                            **metrics, #logs Hypervolume etc.
                             "global_step": self._global_step
                         }
                     )
