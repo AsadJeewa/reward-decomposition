@@ -1,8 +1,10 @@
+import uuid
 import numpy as np
 import torch
 from ppo.agent import ContinuousAgent, DiscreteAgent
 import mo_gymnasium as mo_gym
 from morl_baselines.common.performance_indicators import hypervolume, sparsity, expected_utility
+from morl_baselines.common.weights import equally_spaced_weights
 from tqdm import tqdm
 import pickle
 import envs
@@ -10,127 +12,14 @@ import os
 from envs.building_env import BuildingEnv_9d
 from envs.utils_building import ParameterGenerator
 from plot_utils import plot_preferences
-
+import pandas as pd
+from scipy.stats import spearmanr
+import json
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from gymnasium.wrappers.vector import NormalizeObservation
-# Set up vectorized env
-env_id = "minecart-v0"  # or "mo-reacher-v5"
-# env_id = "mo-humanoid-v5"  # or "mo-reacher-v5"
-# env_id = "fruit-tree-v0"  # or "mo-reacher-v5"
-num_envs = 16
-reward_size = 3
-episodes_to_collect = 1024
-labels = [str(i) for i in range(reward_size)]  # Adjust based on the environment
-# ref_point = np.array([-1, -1, -1, -1, -1, -1])  # Reference point for hypervolume calculation
-# ref_point = np.array([-100, -100])  # Reference point for hypervolume calculation
-ref_point=np.array([-1, -1, -200.0]),
-# ref_point = np.array([-101, -1001, -101, -101])  # Reference point for hypervolume calculation
-# ref_point = np.array([0, 0, 0, 0, 0, 0, 0, 0, 0])  # Reference point for hypervolume calculation
-gamma = 0.99
-n_to_select = 2048
-
-model_path = "runs/minecart-v0__main_ppo__2026-08-04 15:07:19.504146__1__positive/"
-
-if not os.path.exists(f"results/{env_id}"):
-    os.makedirs(f"results/{env_id}", exist_ok=True)
-
-if env_id == "building":
-    # Special case for BuildingEnv_9d
-    vec_envs = mo_gym.wrappers.vector.MOSyncVectorEnv(
-        lambda: BuildingEnv_9d(ParameterGenerator(Building='OfficeLarge', Weather='Warm_Marine', Location='ElPaso')) 
-        for _ in range(num_envs)
-    )
-else:
-    vec_envs = mo_gym.wrappers.vector.MOSyncVectorEnv(
-        [lambda: mo_gym.make(env_id, max_episode_steps = 1000) for _ in range(num_envs)]
-    )
-
-
-try: 
-    norm_stats = pickle.load(open(model_path + "norm_stats.pkl", "rb"))
-    print(norm_stats)
-    mean = norm_stats.mean
-    std = np.sqrt(norm_stats.var)
-except:
-    mean = np.zeros(vec_envs.single_observation_space.shape)
-    std = np.ones(vec_envs.single_observation_space.shape)
-vec_envs = mo_gym.wrappers.vector.MORecordEpisodeStatistics(vec_envs)
-
-# Agent
-if env_id == "building":
-    # Special case for BuildingEnv_9d
-    env_temp = BuildingEnv_9d(ParameterGenerator(Building='OfficeLarge', Weather='Warm_Marine', Location='ElPaso'))
-else:
-    env_temp = mo_gym.make(env_id)
-
-if env_temp.action_space.__class__.__name__ == "Box":
-    eval_agent = ContinuousAgent(env_temp, reward_size=reward_size).to("cpu")
-else:
-    eval_agent = DiscreteAgent(env_temp, reward_size=reward_size).to("cpu")
-    
-eval_agent.load_state_dict(torch.load(model_path + "main_ppo.rl_model"))
-# eval_agent.eval()
-n_points = 30
-exp_note = "minecart_random"
-right_angled = True
-plot_preferences(agent=eval_agent, algo="random", env=env_temp, n_points=30, exp_note=exp_note, right_angled=right_angled)
-
-# Buffers
-rewards_list = []
-weights_list = []
-
-# Initial env reset and per-env state
-obs, _ = vec_envs.reset()
-curr_weights = torch.distributions.dirichlet.Dirichlet(torch.ones(reward_size)).sample((num_envs,))
-# curr_weights = torch.distributions.uniform.Uniform(low = 0, high = 1).sample((num_envs,reward_size))
-env_rewards = np.zeros((num_envs, reward_size))
-
-episodes_collected = 0
-pbar = tqdm(total=episodes_to_collect)
-
-gammas = np.ones((num_envs, 1))  # Assuming no discounting for simplicity
-while episodes_collected < episodes_to_collect:
-    # Agent action for each env, given obs and per-env weights
-    obs = (obs - mean)/(std + 1e-8)  # Normalize observations
-    actions = []
-    actions, _ = eval_agent.predict(obs, curr_weights, deterministic=True, device="cpu")
-    # Step all envs
-    next_obs, rews, dones, truncs, infos = vec_envs.step(actions)
-    env_rewards += gammas * rews
-    # Handle episode completion for each env
-    gammas *= gamma
-    terminations = np.logical_or(dones, truncs)
-    if np.any(terminations):
-        rewards_list.append(env_rewards[terminations])
-        weights_list.append(curr_weights[terminations].cpu().numpy())
-        episodes_collected += sum(terminations)
-        pbar.update(sum(terminations))
-        env_rewards[terminations] = 0  # Reset rewards for finished envs
-        gammas[terminations] = 1.0  # Reset gammas for finished envs
-        # Reset the finished env
-        # single_obs, _ = vec_envs.reset(env_idx)
-        # next_obs[env_idx] = single_obs
-        # Sample a new weight for this env
-        curr_weights[terminations] = torch.distributions.dirichlet.Dirichlet(torch.ones(reward_size)).sample((np.sum(terminations), ))
-        # curr_weights[terminations] = torch.distributions.uniform.Uniform(low = 0, high = 1).sample(( np.sum(terminations), reward_size))
-        # env_rewards[terminations] = []
-    obs = next_obs
-
-pbar.close()
-
-# Additional evaluation with extreme (one-hot) weights
-print("Evaluating on extreme (one-hot) preference weights...")
-extreme_rewards = []
-extreme_weights = []
-
-rewards_list = np.vstack(rewards_list)
-weights_list = np.vstack(weights_list)
-
-# rewards_list = np.vstack(rewards_list)
-# weights_list = np.vstack(weights_list)
 
 # Pareto front calculation (robust and correct for maximization)
 def pareto_front(points: np.ndarray) -> np.ndarray:
@@ -210,6 +99,240 @@ def select_points_by_crowd_distance(pareto_points, n_to_select):
     # Return the corresponding points
     return pareto_points[selected_indices]
 
+def controllability(weights, returns):
+    """
+    Preference controllability using cosine similarity.
+    
+    Args:
+        weights: preference vectors (N, D)
+        returns: realised returns (N, D)
+    """
+
+    # Normalise vectors
+    weight_norm = np.linalg.norm(weights, axis=1, keepdims=True)
+    return_norm = np.linalg.norm(returns, axis=1, keepdims=True)
+
+    weights_norm = weights / (weight_norm + 1e-8)
+    returns_norm = returns / (return_norm + 1e-8)
+
+    # cosine similarity between preference and realised return
+    cosine_scores = np.sum(weights_norm * returns_norm, axis=1)
+
+    return np.mean(cosine_scores)
+
+def local_sensitivity(weights, returns):
+    distances_w = []
+    distances_r = []
+
+    for i in range(len(weights)):
+        dist = np.linalg.norm(weights - weights[i], axis=1)
+        idx = np.argsort(dist)[1]  # closest other preference
+
+        distances_w.append(dist[idx])
+        distances_r.append(
+            np.linalg.norm(returns[i] - returns[idx])
+        )
+
+    return  np.mean(np.array(distances_r) / (np.array(distances_w)+1e-8))
+
+def normalize_returns(returns, max_r=None, min_r=None):
+    """
+    Normalise each objective independently to [0,1].
+    returns: (N, D)
+    """
+    if min_r is None:
+        min_r = returns.min(axis=0)
+    if max_r is None:
+        max_r = returns.max(axis=0)
+    print("MIN MAX: ", returns.min(axis=0), returns.max(axis=0))
+
+    return (returns - min_r) / (max_r - min_r + 1e-8)
+# Set up vectorized env
+env_id = "minecart-v0"  # or "mo-reacher-v5"
+# env_id = "mo-humanoid-v5"  # or "mo-reacher-v5"
+# env_id = "fruit-tree-v0"  # or "mo-reacher-v5"
+reward_size = 3
+num_eval_weights = 100
+num_eval_episodes = 10
+num_envs = num_eval_episodes
+labels = [str(i) for i in range(reward_size)]  # Adjust based on the environment
+
+if env_id == "deep-sea-treasure-v0":
+    ref_point = np.array([0.0, -50.0])
+elif env_id == "minecart-v0":
+    ref_point = np.array([-1, -1, -200.0])
+elif env_id == "mo-reacher-v5":
+    ref_point = np.array([-50, -50, -50, -50]),
+else:
+    print("Please specify a reference point for the environment")
+    exit()
+gamma = 0.99
+n_to_select = 2048
+
+model_path = "runs/minecart-v0__main_ppo__2026-08-07 11.02.05.314703__1__positive/"
+
+with open(model_path + "hparams.json", "r") as f:
+    hparams = json.load(f)
+
+training_seed = hparams["seed"]
+if not os.path.exists(f"results/{env_id}"):
+    os.makedirs(f"results/{env_id}", exist_ok=True)
+
+if env_id == "building":
+    # Special case for BuildingEnv_9d
+    vec_envs = mo_gym.wrappers.vector.MOSyncVectorEnv(
+        lambda: BuildingEnv_9d(ParameterGenerator(Building='OfficeLarge', Weather='Warm_Marine', Location='ElPaso')) 
+        for _ in range(num_envs)
+    )
+else:
+    vec_envs = mo_gym.wrappers.vector.MOSyncVectorEnv(
+        [lambda: mo_gym.make(env_id, max_episode_steps = 1000) for _ in range(num_envs)]
+    )
+
+
+try: 
+    norm_stats = pickle.load(open(model_path + "norm_stats.pkl", "rb"))
+    print(norm_stats)
+    mean = norm_stats.mean
+    std = np.sqrt(norm_stats.var)
+except:
+    mean = np.zeros(vec_envs.single_observation_space.shape)
+    std = np.ones(vec_envs.single_observation_space.shape)
+vec_envs = mo_gym.wrappers.vector.MORecordEpisodeStatistics(vec_envs)
+
+# Agent
+if env_id == "building":
+    # Special case for BuildingEnv_9d
+    env_temp = BuildingEnv_9d(ParameterGenerator(Building='OfficeLarge', Weather='Warm_Marine', Location='ElPaso'))
+else:
+    env_temp = mo_gym.make(env_id)
+
+if env_temp.action_space.__class__.__name__ == "Box":
+    eval_agent = ContinuousAgent(env_temp, reward_size=reward_size).to("cpu")
+else:
+    eval_agent = DiscreteAgent(env_temp, reward_size=reward_size).to("cpu")
+    
+eval_agent.load_state_dict(torch.load(model_path + "main_ppo.rl_model"))
+# eval_agent.eval()
+n_points = 30
+exp_note = "default"
+right_angled = True
+set_id = str(uuid.uuid4())
+plot_preferences(set_id=set_id, seed=training_seed, agent=eval_agent, env=env_temp, algo="d3po", n_points=30, exp_note=exp_note, right_angled=right_angled)
+
+# Evaluation preferences: fixed, well-distributed reference directions
+weights = equally_spaced_weights(
+    dim=reward_size,
+    n=num_eval_weights,
+    seed=1000
+)
+
+# Buffers
+rewards_list = []
+weights_list = []
+
+total_episodes = len(weights) * num_eval_episodes
+pbar = tqdm(total=total_episodes, desc="Evaluating")
+
+for weight_idx, weight in enumerate(weights):
+    print(f"Evaluating preference {weight_idx + 1}/{num_eval_weights}")
+
+    episode_returns = []
+
+    obs, _ = vec_envs.reset()
+    # Same preference across all parallel environments
+
+    curr_weights = torch.tensor(
+        np.tile(weight, (num_envs, 1)),
+        dtype=torch.float32
+    )
+
+    env_rewards = np.zeros(
+        (num_envs, reward_size),
+        dtype=np.float32
+    )
+
+    gammas = np.ones((num_envs, 1))
+
+    # Track which environments have completed
+
+    finished = np.zeros(num_envs, dtype=bool)
+
+    while not np.all(finished):
+        obs = (obs - mean) / (std + 1e-8)
+
+        actions, _ = eval_agent.predict(
+            obs,
+            curr_weights,
+            deterministic=True,
+            device="cpu"
+        )
+
+        next_obs, rews, dones, truncs, infos = vec_envs.step(actions)
+
+        env_rewards += gammas * rews
+        gammas *= gamma
+
+        terminations = np.logical_or(dones, truncs)
+
+        # Only record environments that finish this episode
+        newly_finished = terminations & ~finished
+
+        if np.any(newly_finished):
+            episode_returns.extend(
+                env_rewards[newly_finished]
+            )
+            finished[newly_finished] = True
+
+        obs = next_obs
+
+    # Mean return across the 10 parallel episodes
+    mean_return = np.mean(
+        np.asarray(episode_returns),
+        axis=0
+    )
+
+    rewards_list.append(mean_return)
+    weights_list.append(weight)
+
+    pbar.update(num_eval_episodes)
+
+pbar.close()
+rewards_list = np.asarray(rewards_list)
+weights_list = np.asarray(weights_list)
+
+# Additional evaluation with extreme (one-hot) weights
+print("Evaluating on extreme (one-hot) preference weights...")
+extreme_rewards = []
+extreme_weights = []
+
+# Overall controllability
+CO = controllability(
+    weights_list,
+    rewards_list
+)
+
+# Objective-wise controllability
+objective_control = []
+
+for d in range(reward_size):
+    corr, _ = spearmanr(
+        weights_list[:, d],
+        rewards_list[:, d]
+    )
+    objective_control.append(corr)
+
+norm_returns = normalize_returns(returns=rewards_list,max_r=np.array([1.5, 1.5, 0.0]), min_r=np.array([0.0, 0.0, -1.0]))
+print(norm_returns)
+local_sensitivity = local_sensitivity(weights_list, norm_returns)
+
+print("Preference controllability:", CO)
+print("Objective controllability:", objective_control)
+print("Local sensitivity:", local_sensitivity)
+
+# rewards_list = np.vstack(rewards_list)
+# weights_list = np.vstack(weights_list)
+
 mask = pareto_front(rewards_list)
 front = rewards_list[mask]
 dominated = rewards_list[~mask]
@@ -273,3 +396,20 @@ pickle.dump({
     "sparsity": sprs,
     "expected_utility": expected_utility(front, weights_list[mask]),
 }, open(f"results/{env_id}/eval_results_{env_id}.pkl", "wb"))
+
+data = {
+    "set_id": set_id,
+    "training_seed": training_seed,
+    "hypervolume": hv,
+    "sparsity": sprs,
+    "expected_utility": expected_utility(front, weights_list[mask]),
+    "preference_controllability": CO,
+    "local_sensitivity": local_sensitivity
+    }
+
+# Add one column per objective
+for d, score in enumerate(objective_control):
+    data[f"objective_controllability_{d}"] = score
+df = pd.DataFrame([data])
+filepath = f"results/{env_id}/metrics_d3po_{exp_note}.csv"
+df.to_csv(filepath, mode="a", index=False, header=not os.path.isfile(filepath))
