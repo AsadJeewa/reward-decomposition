@@ -208,7 +208,7 @@ def run_ppo(
         # os.environ["MUJOCO_GL"] = "egl"
         # os.environ["PYOPENGL_PLATFORM"] = "osmesa"
         # os.environ["LIBGL_ALWAYS_SOFTWARE"] = 1
-        ref_point = np.array([-50, -50, -50, -50]),
+        ref_point = np.array([-50, -50, -50, -50])
     else:
         print("Please specify a reference point for the environment")
         exit()
