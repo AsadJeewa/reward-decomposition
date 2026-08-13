@@ -200,6 +200,19 @@ def run_ppo(
     run_name = f"{env_id}__{exp_name}__{datetime.now()}__{seed}__{'negative' if negative else 'positive'}"
     set_seed(seed, torch_deterministic)
 
+    if env_id == "deep-sea-treasure-v0":
+        ref_point = np.array([0.0, -50.0])
+    elif env_id == "minecart-v0":
+        ref_point = np.array([-1, -1, -200.0])
+    elif env_id == "mo-reacher-v5":
+        # os.environ["MUJOCO_GL"] = "egl"
+        # os.environ["PYOPENGL_PLATFORM"] = "osmesa"
+        # os.environ["LIBGL_ALWAYS_SOFTWARE"] = 1
+        ref_point = np.array([-50, -50, -50, -50]),
+    else:
+        print("Please specify a reference point for the environment")
+        exit()
+
     # Set up device666
     # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     device = torch.device("cpu")
@@ -212,7 +225,8 @@ def run_ppo(
         )
     else:
         envs = mo_gym.wrappers.vector.MOSyncVectorEnv(
-            lambda: gym.wrappers.RecordVideo(mo_gym.make(env_id, render_mode = "rgb_array"), f"runs/{run_name}/videos") for _ in range(num_envs)
+            # lambda: gym.wrappers.RecordVideo(mo_gym.make(env_id, render_mode = "rgb_array"), f"runs/{run_name}/videos") for _ in range(num_envs)
+            [lambda: mo_gym.make(env_id, max_episode_steps = 1000) for _ in range(num_envs)] #TODO fix record video
         )
     if normalize_observations:
         envs = NormalizeObservation(envs)
@@ -322,7 +336,7 @@ def run_ppo(
     )
     print(ppo.agent)
     # Train the agent
-    trained_agent = ppo.learn(total_timesteps)
+    trained_agent = ppo.learn(total_timesteps,ref_point=ref_point)
 
     if save_model:
         if not os.path.exists(f"runs/{run_name}"):
