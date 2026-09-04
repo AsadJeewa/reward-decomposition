@@ -3,7 +3,7 @@ program: sweep.py
 method: grid
 
 metric:
-  name: eval/HV
+  name: eval/hypervolume
   goal: maximize
 
 parameters:
@@ -14,9 +14,8 @@ parameters:
     value: true
 
   total_timesteps:
-    value: 500000
+    value: 5000000
 
-parameters:
   learning_rate:
     values: [0.0001, 0.0003]
 
@@ -28,3 +27,6 @@ parameters:
 
   gamma:
     value: 0.995
+
+  seed:
+      values: [1, 2, 3]
