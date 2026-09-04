@@ -26,7 +26,7 @@ def sample_simplex_grid(n_points):
     return np.array(ts), np.array(ss)
 
 
-def evaluate_line(set_id, seed, agent, algo, env, n_points=50, exp_note=""):
+def evaluate_line(run_id, seed, agent, algo, env, n_points=50, exp_note=""):
     algo_lower = algo.lower()
 
     is_d3po = "d3po" in algo_lower
@@ -67,7 +67,7 @@ def evaluate_line(set_id, seed, agent, algo, env, n_points=50, exp_note=""):
             done = terminated or truncated
 
         rows.append({
-            "set_id": set_id,   
+            "run_id": run_id,   
             "training_seed": seed,      
             "algo": algo,
             "t": t,
@@ -95,7 +95,7 @@ def evaluate_line(set_id, seed, agent, algo, env, n_points=50, exp_note=""):
     plt.close()
 
     
-def evaluate_simplex(set_id, seed,agent, algo, env, n_points=10, exp_note="", right_angled=True):
+def evaluate_simplex(run_id, seed,agent, algo, env, n_points=10, exp_note="", right_angled=True):
     algo_lower = algo.lower()
 
     is_d3po = "d3po" in algo_lower
@@ -136,7 +136,7 @@ def evaluate_simplex(set_id, seed,agent, algo, env, n_points=10, exp_note="", ri
             done = terminated or truncated
 
         rows.append({
-            "set_id": set_id,
+            "run_id": run_id,
             "training_seed": seed,
             "algo": algo,
             "t": t,
@@ -211,10 +211,10 @@ def evaluate_simplex(set_id, seed,agent, algo, env, n_points=10, exp_note="", ri
     plt.close()
 
 
-def plot_preferences(set_id, seed, agent, env, algo, n_points=50, exp_note="", right_angled=True):
+def plot_preferences(run_id, seed, agent, env, algo, n_points=50, exp_note="", right_angled=True):
     if env.unwrapped.reward_dim == 2:
         evaluate_line(
-            set_id,
+            run_id,
             seed,
             agent,
             algo,
@@ -224,7 +224,7 @@ def plot_preferences(set_id, seed, agent, env, algo, n_points=50, exp_note="", r
         )
     elif env.unwrapped.reward_dim == 3:
         evaluate_simplex(
-            set_id,
+            run_id,
             seed,
             agent,
             algo,
