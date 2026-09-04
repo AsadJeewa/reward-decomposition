@@ -61,7 +61,8 @@ def load_and_evaluate_model(
     #     eval_envs.set_obs_norm_rms_obj(avg_rms_obj)
 
     eval_agent = agent_class(eval_envs).to(device)
-    eval_agent.load_state_dict(torch.load(model_path, map_location=device))
+    checkpoint = torch.load(model_path, map_location=device)
+    eval_agent.load_state_dict(checkpoint["agent_state_dict"])
     eval_agent.eval()
     frames_per_env = [[] for _ in range(num_envs)]  # one list of frames per env
 
@@ -115,7 +116,7 @@ def run_ppo(
     num_rollout_steps: int = 2048,
     update_epochs: int = 10,
     num_minibatches: int = 32,
-    learning_rate: float = 0.0003,
+    learning_rate: float = 0.0001,
     gamma: float = 0.995,
     eval_gamma: float = 0.99,
     gae_lambda: float = 0.95,
@@ -128,7 +129,7 @@ def run_ppo(
     normalize_rewards: bool = True,
     clip_value_function_loss: bool = False,
     max_grad_norm: float = 0.5,
-    diversity_scale: float = 0.1,
+    diversity_scale: float = 0.05,
     target_kl: float = None,
     anneal_lr: bool = False,
     rpo_alpha: float = None,
@@ -138,7 +139,8 @@ def run_ppo(
     use_tensorboard: bool = True,
     use_wandb: bool = False,
     save_model: bool = True,
-    eval_updates_freq: int = 5
+    eval_updates_freq: int = 5,
+    ref_point: str = None
 ):
     """
     Main function to run the PPO (Proximal Policy Optimization) algorithm.
@@ -200,14 +202,14 @@ def run_ppo(
     run_name = f"{env_id}__{exp_name}__{datetime.now()}__{seed}__{'negative' if negative else 'positive'}"
     set_seed(seed, torch_deterministic)
 
-    if env_id == "deep-sea-treasure-v0":
+    if ref_point is not None:
+        import ast
+        ref_point = np.array(ast.literal_eval(ref_point))
+    elif env_id == "deep-sea-treasure-v0":
         ref_point = np.array([0.0, -50.0])
     elif env_id == "minecart-v0":
         ref_point = np.array([-1, -1, -200.0])
     elif env_id == "mo-reacher-v5":
-        # os.environ["MUJOCO_GL"] = "egl"
-        # os.environ["PYOPENGL_PLATFORM"] = "osmesa"
-        # os.environ["LIBGL_ALWAYS_SOFTWARE"] = 1
         ref_point = np.array([-50, -50, -50, -50])
     else:
         print("Please specify a reference point for the environment")
@@ -298,7 +300,8 @@ def run_ppo(
         "negative": negative,
         "scalar_reward": scalar_reward,
         "diversity_scale": diversity_scale,
-        "eval_updates_freq": eval_updates_freq
+        "eval_updates_freq": eval_updates_freq,
+        "ref_point": ref_point.tolist()
     }, 
         reward_size = envs.rewards_shape[-1])
     pareto_archive = ParetoArchive()
@@ -378,11 +381,16 @@ def run_ppo(
             "anneal_lr": anneal_lr,
             "rpo_alpha": rpo_alpha,
             "seed": seed,
-            "diversity_scale": diversity_scale
+            "diversity_scale": diversity_scale,
+            "ref_point": ref_point.tolist()
         }
         with open(hparams_path, "w") as f:
             json.dump(hparams_to_json, f, indent = 4)
-        torch.save(trained_agent.state_dict(), model_path)
+        torch.save({
+            "agent_state_dict": trained_agent.state_dict(),
+            "seed": seed,
+            "config": hparams_to_json,
+        }, model_path)
         print(f"Model saved to {model_path}")
 
         frames = load_and_evaluate_model(

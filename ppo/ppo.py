@@ -8,6 +8,7 @@ from torch.distributions.dirichlet import Dirichlet
 from morl_baselines.common.pareto import ParetoArchive
 import wandb
 from ppo.utils import evaluate_agent_metrics
+
 class LinearLRSchedule:
     def __init__(self, optimizer, initial_lr, total_updates):
         self.optimizer = optimizer
@@ -271,6 +272,8 @@ class PPO:
 
         self.eval_updates_freq = eval_updates_freq 
 
+        self.best_hv = -np.inf
+
     def create_lr_scheduler(self, num_policy_updates):
         return LinearLRSchedule(self.optimizer, self.initial_lr, num_policy_updates)
 
@@ -361,6 +364,11 @@ class PPO:
                             "global_step": self._global_step
                         }
                     )
+                if metrics and "eval/hypervolume" in metrics:
+                    if metrics["eval/hypervolume"] > self.best_hv:
+                        self.best_hv = metrics["eval/hypervolume"]
+                        if self.logger.use_wandb:
+                            wandb.log({"best/HV": self.best_hv}, step=self._global_step)
 
         print(f"Training completed. Total steps: {self._global_step}")
         if self.logger.use_wandb:
