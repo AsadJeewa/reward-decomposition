@@ -1,3 +1,4 @@
+import secrets
 import uuid
 import numpy as np
 import torch
@@ -12,6 +13,7 @@ import os
 from envs.building_env import BuildingEnv_9d
 from envs.utils_building import ParameterGenerator
 from plot_utils import plot_preferences
+from eval_utils import compute_all_controllability_metrics
 import pandas as pd
 from scipy.stats import spearmanr
 import json
@@ -20,6 +22,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from gymnasium.wrappers.vector import NormalizeObservation
+
 
 # Pareto front calculation (robust and correct for maximization)
 def pareto_front(points: np.ndarray) -> np.ndarray:
@@ -98,42 +101,6 @@ def select_points_by_crowd_distance(pareto_points, n_to_select):
 
     # Return the corresponding points
     return pareto_points[selected_indices]
-
-def controllability(weights, returns):
-    """
-    Preference controllability using cosine similarity.
-    
-    Args:
-        weights: preference vectors (N, D)
-        returns: realised returns (N, D)
-    """
-
-    # Normalise vectors
-    weight_norm = np.linalg.norm(weights, axis=1, keepdims=True)
-    return_norm = np.linalg.norm(returns, axis=1, keepdims=True)
-
-    weights_norm = weights / (weight_norm + 1e-8)
-    returns_norm = returns / (return_norm + 1e-8)
-
-    # cosine similarity between preference and realised return
-    cosine_scores = np.sum(weights_norm * returns_norm, axis=1)
-
-    return np.mean(cosine_scores)
-
-def local_sensitivity(weights, returns):
-    distances_w = []
-    distances_r = []
-
-    for i in range(len(weights)):
-        dist = np.linalg.norm(weights - weights[i], axis=1)
-        idx = np.argsort(dist)[1]  # closest other preference
-
-        distances_w.append(dist[idx])
-        distances_r.append(
-            np.linalg.norm(returns[i] - returns[idx])
-        )
-
-    return  np.mean(np.array(distances_r) / (np.array(distances_w)+1e-8))
 
 def normalize_returns(returns, max_r=None, min_r=None):
     """
@@ -217,8 +184,8 @@ eval_agent.load_state_dict(torch.load(model_path + "main_ppo.rl_model"))
 n_points = 30
 exp_note = "default"
 right_angled = True
-set_id = str(uuid.uuid4())
-plot_preferences(set_id=set_id, seed=training_seed, agent=eval_agent, env=env_temp, algo="d3po", n_points=30, exp_note=exp_note, right_angled=right_angled)
+run_id = secrets.token_urlsafe(4)[:6]
+plot_preferences(run_id=run_id, seed=training_seed, agent=eval_agent, env=env_temp, algo="d3po", n_points=30, exp_note=exp_note, right_angled=right_angled)
 
 # Evaluation preferences: fixed, well-distributed reference directions
 weights = equally_spaced_weights(
@@ -306,29 +273,10 @@ print("Evaluating on extreme (one-hot) preference weights...")
 extreme_rewards = []
 extreme_weights = []
 
-# Overall controllability
-CO = controllability(
-    weights_list,
-    rewards_list
-)
-
-# Objective-wise controllability
-objective_control = []
-
-for d in range(reward_size):
-    corr, _ = spearmanr(
-        weights_list[:, d],
-        rewards_list[:, d]
-    )
-    objective_control.append(corr)
-
-norm_returns = normalize_returns(returns=rewards_list,max_r=np.array([1.5, 1.5, 0.0]), min_r=np.array([0.0, 0.0, -1.0]))
-print(norm_returns)
-local_sensitivity = local_sensitivity(weights_list, norm_returns)
-
-print("Preference controllability:", CO)
-print("Objective controllability:", objective_control)
-print("Local sensitivity:", local_sensitivity)
+metrics = compute_all_controllability_metrics(weights_list, rewards_list)
+print("Preference controllability:", metrics["preference_controllability"])
+print("Local sensitivity:", metrics["local_sensitivity"])
+print("Objective controllability:", [v for k, v in metrics.items() if k.startswith("objective_controllability")])
 
 # rewards_list = np.vstack(rewards_list)
 # weights_list = np.vstack(weights_list)
@@ -398,7 +346,7 @@ pickle.dump({
 }, open(f"results/{env_id}/eval_results_{env_id}.pkl", "wb"))
 
 data = {
-    "set_id": set_id,
+    "run_id": run_id,
     "training_seed": training_seed,
     "hypervolume": hv,
     "sparsity": sprs,
