@@ -209,7 +209,7 @@ def run_ppo(
         ref_point = np.array([0.0, -50.0])
     elif env_id == "minecart-v0":
         ref_point = np.array([-1, -1, -200.0])
-    elif env_id == "mo-reacher-v5":
+    elif "mo-reacher" in env_id:
         ref_point = np.array([-50, -50, -50, -50])
     else:
         print("Please specify a reference point for the environment")
