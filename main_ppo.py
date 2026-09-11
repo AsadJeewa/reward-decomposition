@@ -199,7 +199,7 @@ def run_ppo(
 
     # Set up run name and logging
     exp_name: str = os.path.basename(__file__)[: -len(".py")]
-    run_name = f"{env_id}__{exp_name}__{datetime.now()}__{seed}__{'negative' if negative else 'positive'}"
+    run_name = f"D3PO_{env_id}__{exp_name}__{datetime.now()}__{seed}__{'negative' if negative else 'positive'}"
     set_seed(seed, torch_deterministic)
 
     if ref_point is not None:
