@@ -115,9 +115,9 @@ def normalize_returns(returns, max_r=None, min_r=None):
 
     return (returns - min_r) / (max_r - min_r + 1e-8)
 # Set up vectorized env
-env_id = "minecart-v0"  # or "mo-reacher-v5"
-# env_id = "mo-humanoid-v5"  # or "mo-reacher-v5"
-# env_id = "fruit-tree-v0"  # or "mo-reacher-v5"
+env_id = "minecart-v0"  # or "mo-reacher-v4"
+# env_id = "mo-humanoid-v5"  # or "mo-reacher-v4"
+# env_id = "fruit-tree-v0"  # or "mo-reacher-v4"
 reward_size = 3
 num_eval_weights = 100
 num_eval_episodes = 10
@@ -128,7 +128,7 @@ if env_id == "deep-sea-treasure-v0":
     ref_point = np.array([0.0, -50.0])
 elif env_id == "minecart-v0":
     ref_point = np.array([-1, -1, -200.0])
-elif env_id == "mo-reacher-v5":
+elif "mo-reacher" in env_id:
     ref_point = np.array([-50, -50, -50, -50]),
 else:
     print("Please specify a reference point for the environment")
