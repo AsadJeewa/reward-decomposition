@@ -20,8 +20,11 @@ def compute_objective_controllability(weights, returns):
     num_obj = returns.shape[1]
     objective_control = []
     for d in range(num_obj):
-        corr, _ = spearmanr(weights[:, d], returns[:, d])
-        objective_control.append(corr)
+        if np.std(returns[:, d]) < 1e-8 or np.std(weights[:, d]) < 1e-8:
+            objective_control.append(0.0)
+        else:
+            corr, _ = spearmanr(weights[:, d], returns[:, d])
+            objective_control.append(corr)
     return np.array(objective_control)
 
 
@@ -35,6 +38,8 @@ def compute_local_sensitivity(weights, returns):
         distances[i] = np.inf
         j = np.argmin(distances)
         dw = np.linalg.norm(weights[i] - weights[j])
+        if dw < 1e-8:
+            continue  # skip if weights are identical
         dr = np.linalg.norm(returns[i] - returns[j])
         sensitivities.append(dr / (dw + 1e-8))
     return np.mean(sensitivities)
