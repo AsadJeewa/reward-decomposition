@@ -57,7 +57,7 @@ def evaluate_line(run_id, seed, agent, algo, env, n_points=50, exp_note=""):
 
                 if is_d3po:
                     actions, _ = agent.predict(obs_tensor, w_tensor, deterministic=True, device="cpu")
-
+                    actions = np.asarray(actions).item()
                 else:
                     actions = env.action_space.sample()
 
