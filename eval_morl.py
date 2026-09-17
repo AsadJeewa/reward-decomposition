@@ -1,5 +1,5 @@
+import fire
 import secrets
-import uuid
 import numpy as np
 import torch
 from ppo.agent import ContinuousAgent, DiscreteAgent
@@ -8,8 +8,8 @@ from morl_baselines.common.performance_indicators import hypervolume, sparsity, 
 from morl_baselines.common.weights import equally_spaced_weights
 from tqdm import tqdm
 import pickle
-import envs
 import os
+from pathlib import Path
 from envs.building_env import BuildingEnv_9d
 from envs.utils_building import ParameterGenerator
 from plot_utils import plot_preferences
@@ -114,250 +114,258 @@ def normalize_returns(returns, max_r=None, min_r=None):
     print("MIN MAX: ", returns.min(axis=0), returns.max(axis=0))
 
     return (returns - min_r) / (max_r - min_r + 1e-8)
-# Set up vectorized env
-env_id = "minecart-v0"  # or "mo-reacher-v4"
-# env_id = "mo-humanoid-v5"  # or "mo-reacher-v4"
-# env_id = "fruit-tree-v0"  # or "mo-reacher-v4"
-reward_size = 3
-num_eval_weights = 100
-num_eval_episodes = 10
-num_envs = num_eval_episodes
-labels = [str(i) for i in range(reward_size)]  # Adjust based on the environment
 
-if env_id == "deep-sea-treasure-v0":
-    ref_point = np.array([0.0, -50.0])
-elif env_id == "minecart-v0":
-    ref_point = np.array([-1, -1, -200.0])
-elif "mo-reacher" in env_id:
-    ref_point = np.array([-50, -50, -50, -50]),
-else:
-    print("Please specify a reference point for the environment")
-    exit()
-gamma = 0.99
-n_to_select = 2048
+def main(run_pattern: str):
+    # Set up vectorized env
+    # model_path = "runs/minecart-v0__main_ppo__2026-08-07 11.02.05.314703__1__positive/"
+    run_pattern = "runs/D3PO_deep-sea-treasure-v0__main_ppo__*__positive"
+    model_paths = sorted(Path(".").glob(run_pattern))
+    assert model_paths, f"No runs found matching pattern: {run_pattern}"
 
-model_path = "runs/minecart-v0__main_ppo__2026-08-07 11.02.05.314703__1__positive/"
+    num_eval_weights = 1000
+    num_eval_episodes = 1000
+    num_envs = num_eval_episodes
+    print(run_pattern)
+    print(model_paths)
+    if "deep-sea-treasure" in run_pattern:
+        env_id = "deep-sea-treasure-v0"
+        ref_point = np.array([0.0, -50.0])
+        reward_size = 2
+    elif "minecart" in run_pattern:
+        env_id = "minecart-v0"
+        ref_point = np.array([-1, -1, -200.0])
+        reward_size = 3
+    elif "reacher" in run_pattern:
+        env_id = "mo-reacher-v4"
+        ref_point = np.array([-50, -50, -50, -50])
+        reward_size = 4
+    else:
+        print("Please specify a reference point for the environment")
+        exit()
 
-with open(model_path + "hparams.json", "r") as f:
-    hparams = json.load(f)
+    labels = [str(i) for i in range(reward_size)]  # Adjust based on the environment
+    gamma = 0.99
+    n_to_select = 2048
 
-training_seed = hparams["seed"]
-if not os.path.exists(f"results/{env_id}"):
-    os.makedirs(f"results/{env_id}", exist_ok=True)
+    for model_path in model_paths:
+        with open(model_path / "hparams.json", "r") as f:
+            hparams = json.load(f)
 
-if env_id == "building":
-    # Special case for BuildingEnv_9d
-    vec_envs = mo_gym.wrappers.vector.MOSyncVectorEnv(
-        lambda: BuildingEnv_9d(ParameterGenerator(Building='OfficeLarge', Weather='Warm_Marine', Location='ElPaso')) 
-        for _ in range(num_envs)
-    )
-else:
-    vec_envs = mo_gym.wrappers.vector.MOSyncVectorEnv(
-        [lambda: mo_gym.make(env_id, max_episode_steps = 1000) for _ in range(num_envs)]
-    )
+        training_seed = hparams["seed"]
+        if not os.path.exists(f"results/{env_id}"):
+            os.makedirs(f"results/{env_id}", exist_ok=True)
+
+        if env_id == "building":
+            # Special case for BuildingEnv_9d
+            vec_envs = mo_gym.wrappers.vector.MOSyncVectorEnv(
+                lambda: BuildingEnv_9d(ParameterGenerator(Building='OfficeLarge', Weather='Warm_Marine', Location='ElPaso')) 
+                for _ in range(num_envs)
+            )
+        else:
+            vec_envs = mo_gym.wrappers.vector.MOSyncVectorEnv(
+                [lambda: mo_gym.make(env_id, max_episode_steps = 1000) for _ in range(num_envs)]
+            )
 
 
-try: 
-    norm_stats = pickle.load(open(model_path + "norm_stats.pkl", "rb"))
-    print(norm_stats)
-    mean = norm_stats.mean
-    std = np.sqrt(norm_stats.var)
-except:
-    mean = np.zeros(vec_envs.single_observation_space.shape)
-    std = np.ones(vec_envs.single_observation_space.shape)
-vec_envs = mo_gym.wrappers.vector.MORecordEpisodeStatistics(vec_envs)
+        try: 
+            norm_stats = pickle.load(open(model_path / "norm_stats.pkl", "rb"))
+            print(norm_stats)
+            mean = norm_stats.mean
+            std = np.sqrt(norm_stats.var)
+        except:
+            mean = np.zeros(vec_envs.single_observation_space.shape)
+            std = np.ones(vec_envs.single_observation_space.shape)
+        vec_envs = mo_gym.wrappers.vector.MORecordEpisodeStatistics(vec_envs)
 
-# Agent
-if env_id == "building":
-    # Special case for BuildingEnv_9d
-    env_temp = BuildingEnv_9d(ParameterGenerator(Building='OfficeLarge', Weather='Warm_Marine', Location='ElPaso'))
-else:
-    env_temp = mo_gym.make(env_id)
+        # Agent
+        if env_id == "building":
+            # Special case for BuildingEnv_9d
+            env_temp = BuildingEnv_9d(ParameterGenerator(Building='OfficeLarge', Weather='Warm_Marine', Location='ElPaso'))
+        else:
+            env_temp = mo_gym.make(env_id)
 
-if env_temp.action_space.__class__.__name__ == "Box":
-    eval_agent = ContinuousAgent(env_temp, reward_size=reward_size).to("cpu")
-else:
-    eval_agent = DiscreteAgent(env_temp, reward_size=reward_size).to("cpu")
-    
-eval_agent.load_state_dict(torch.load(model_path + "main_ppo.rl_model"))
-# eval_agent.eval()
-n_points = 30
-exp_note = "default"
-right_angled = True
-run_id = secrets.token_urlsafe(4)[:6]
-plot_preferences(run_id=run_id, seed=training_seed, agent=eval_agent, env=env_temp, algo="d3po", n_points=30, exp_note=exp_note, right_angled=right_angled)
+        if env_temp.action_space.__class__.__name__ == "Box":
+            eval_agent = ContinuousAgent(env_temp, reward_size=reward_size).to("cpu")
+        else:
+            eval_agent = DiscreteAgent(env_temp, reward_size=reward_size).to("cpu")
 
-# Evaluation preferences: fixed, well-distributed reference directions
-weights = equally_spaced_weights(
-    dim=reward_size,
-    n=num_eval_weights,
-    seed=1000
-)
+        eval_agent.load_state_dict(torch.load(model_path / "main_ppo.rl_model"))
+        # eval_agent.eval()
+        n_points = 30
+        exp_note = "default"
+        right_angled = True
+        run_id = secrets.token_urlsafe(4)[:6]
+        plot_preferences(run_id=run_id, seed=training_seed, agent=eval_agent, env=env_temp, algo="d3po", n_points=30, exp_note=exp_note, right_angled=right_angled)
 
-# Buffers
-rewards_list = []
-weights_list = []
-
-total_episodes = len(weights) * num_eval_episodes
-pbar = tqdm(total=total_episodes, desc="Evaluating")
-
-for weight_idx, weight in enumerate(weights):
-    print(f"Evaluating preference {weight_idx + 1}/{num_eval_weights}")
-
-    episode_returns = []
-
-    obs, _ = vec_envs.reset()
-    # Same preference across all parallel environments
-
-    curr_weights = torch.tensor(
-        np.tile(weight, (num_envs, 1)),
-        dtype=torch.float32
-    )
-
-    env_rewards = np.zeros(
-        (num_envs, reward_size),
-        dtype=np.float32
-    )
-
-    gammas = np.ones((num_envs, 1))
-
-    # Track which environments have completed
-
-    finished = np.zeros(num_envs, dtype=bool)
-
-    while not np.all(finished):
-        obs = (obs - mean) / (std + 1e-8)
-
-        actions, _ = eval_agent.predict(
-            obs,
-            curr_weights,
-            deterministic=True,
-            device="cpu"
+        # Evaluation preferences: fixed, well-distributed reference directions
+        weights = equally_spaced_weights(
+            dim=reward_size,
+            n=num_eval_weights,
+            seed=1000
         )
 
-        next_obs, rews, dones, truncs, infos = vec_envs.step(actions)
+        # Buffers
+        rewards_list = []
+        weights_list = []
 
-        env_rewards += gammas * rews
-        gammas *= gamma
+        total_episodes = len(weights) * num_eval_episodes
+        pbar = tqdm(total=total_episodes, desc="Evaluating")
 
-        terminations = np.logical_or(dones, truncs)
+        for weight_idx, weight in enumerate(weights):
+            print(f"Evaluating preference {weight_idx + 1}/{num_eval_weights}")
 
-        # Only record environments that finish this episode
-        newly_finished = terminations & ~finished
+            episode_returns = []
 
-        if np.any(newly_finished):
-            episode_returns.extend(
-                env_rewards[newly_finished]
+            obs, _ = vec_envs.reset()
+            # Same preference across all parallel environments
+
+            curr_weights = torch.tensor(
+                np.tile(weight, (num_envs, 1)),
+                dtype=torch.float32
             )
-            finished[newly_finished] = True
 
-        obs = next_obs
+            env_rewards = np.zeros(
+                (num_envs, reward_size),
+                dtype=np.float32
+            )
 
-    # Mean return across the 10 parallel episodes
-    mean_return = np.mean(
-        np.asarray(episode_returns),
-        axis=0
-    )
+            gammas = np.ones((num_envs, 1))
 
-    rewards_list.append(mean_return)
-    weights_list.append(weight)
+            # Track which environments have completed
 
-    pbar.update(num_eval_episodes)
+            finished = np.zeros(num_envs, dtype=bool)
 
-pbar.close()
-rewards_list = np.asarray(rewards_list)
-weights_list = np.asarray(weights_list)
+            while not np.all(finished):
+                obs = (obs - mean) / (std + 1e-8)
 
-# Additional evaluation with extreme (one-hot) weights
-print("Evaluating on extreme (one-hot) preference weights...")
-extreme_rewards = []
-extreme_weights = []
+                actions, _ = eval_agent.predict(
+                    obs,
+                    curr_weights,
+                    deterministic=True,
+                    device="cpu"
+                )
 
-metrics = compute_all_controllability_metrics(weights_list, rewards_list)
-print("Preference controllability:", metrics["preference_controllability"])
-print("Local sensitivity:", metrics["local_sensitivity"])
-print("Objective controllability:", [v for k, v in metrics.items() if k.startswith("objective_controllability")])
+                next_obs, rews, dones, truncs, infos = vec_envs.step(actions)
 
-# rewards_list = np.vstack(rewards_list)
-# weights_list = np.vstack(weights_list)
+                env_rewards += gammas * rews
+                gammas *= gamma
 
-mask = pareto_front(rewards_list)
-front = rewards_list[mask]
-dominated = rewards_list[~mask]
-# print(weights_list[mask])
-# print(front)
-print("Pareto front shape:", front.shape)
+                terminations = np.logical_or(dones, truncs)
 
-# Hypervolume and sparsity
-# ref_point = front.min(axis=0) - 1e-6
-import itertools
+                # Only record environments that finish this episode
+                newly_finished = terminations & ~finished
 
-n_obj = front.shape[1]
-pairs = list(itertools.combinations(range(reward_size), 2))
+                if np.any(newly_finished):
+                    episode_returns.extend(
+                        env_rewards[newly_finished]
+                    )
+                    finished[newly_finished] = True
 
-print(pairs)
+                obs = next_obs
 
-for i, j in pairs:
-    xlabel = labels[i] if i < len(labels) else f"Objective {i}"
-    ylabel = labels[j] if j < len(labels) else f"Objective {j}"
-    
-    print(f"Plotting {xlabel} vs {ylabel} for Pareto front and dominated points...")
-    # 1. Pareto front vs. Dominated Points
-    plt.figure(figsize=(7,5))
-    plt.scatter(dominated[:, i], dominated[:, j], alpha=0.4, label="Dominated", color="blue")
-    plt.scatter(front[:, i], front[:, j], alpha=0.8, label="Pareto front", color="red",
-                marker='o', edgecolors='k', s=60)
-    plt.xlabel(xlabel)
-    plt.ylabel(ylabel)
-    plt.title(f"Pareto Front vs. Dominated Points ({xlabel} vs. {ylabel})")
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig(f"results/{env_id}/pareto_front_vs_dominated_{env_id}_({xlabel} vs. {ylabel}).png", dpi=150)
-    plt.close()
-    
-    # 2. Pareto front only
-    plt.figure(figsize=(7,5))
-    plt.scatter(front[:, i], front[:, j], alpha=0.8, label="Pareto front", color="red",
-                marker='o', edgecolors='k', s=60)
-    plt.xlabel(xlabel)
-    plt.ylabel(ylabel)
-    plt.title(f"Pareto Front ({xlabel} vs. {ylabel})")
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig(f"results/{env_id}/pareto_front_{env_id}_({xlabel} vs. {ylabel}).png", dpi=150)
-    plt.close()
+            # Mean return across the 10 parallel episodes
+            mean_return = np.mean(
+                np.asarray(episode_returns),
+                axis=0
+            )
 
-filtered_front = select_points_by_crowd_distance(front, n_to_select)
-hv = hypervolume(ref_point=ref_point, points=filtered_front)
-sprs = sparsity(front)
-print("Hypervolume of Pareto front:", hv)
-print("Sparsity of Pareto front:", sprs)
-print("Expected utility of Pareto front:", expected_utility(front, weights_list))
+            rewards_list.append(mean_return)
+            weights_list.append(weight)
 
-print(np.max(front, axis=0))
-pickle.dump({
-    "rewards": rewards_list,
-    "weights": weights_list,
-    "mask": mask,
-    "pareto_front": front,
-    "hypervolume": hv,
-    "sparsity": sprs,
-    "expected_utility": expected_utility(front, weights_list[mask]),
-}, open(f"results/{env_id}/eval_results_{env_id}.pkl", "wb"))
+            pbar.update(num_eval_episodes)
 
-data = {
-    "run_id": run_id,
-    "training_seed": training_seed,
-    "hypervolume": hv,
-    "sparsity": sprs,
-    "expected_utility": expected_utility(front, weights_list[mask]),
-    "preference_controllability": CO,
-    "local_sensitivity": local_sensitivity
-    }
+        pbar.close()
+        rewards_list = np.asarray(rewards_list)
+        weights_list = np.asarray(weights_list)
 
-# Add one column per objective
-for d, score in enumerate(objective_control):
-    data[f"objective_controllability_{d}"] = score
-df = pd.DataFrame([data])
-filepath = f"results/{env_id}/metrics_d3po_{exp_note}.csv"
-df.to_csv(filepath, mode="a", index=False, header=not os.path.isfile(filepath))
+        metrics = compute_all_controllability_metrics(weights_list, rewards_list)
+        print("Preference controllability:", metrics["preference_controllability"])
+        print("Local sensitivity:", metrics["local_sensitivity"])
+        print("Objective controllability:", [v for k, v in metrics.items() if k.startswith("objective_controllability")])
+
+        # rewards_list = np.vstack(rewards_list)
+        # weights_list = np.vstack(weights_list)
+
+        mask = pareto_front(rewards_list)
+        front = rewards_list[mask]
+        dominated = rewards_list[~mask]
+        # print(weights_list[mask])
+        # print(front)
+        print("Pareto front shape:", front.shape)
+
+        # Hypervolume and sparsity
+        # ref_point = front.min(axis=0) - 1e-6
+        import itertools
+
+        n_obj = front.shape[1]
+        pairs = list(itertools.combinations(range(reward_size), 2))
+
+        print(pairs)
+
+        for i, j in pairs:
+            xlabel = labels[i] if i < len(labels) else f"Objective {i}"
+            ylabel = labels[j] if j < len(labels) else f"Objective {j}"
+            
+            print(f"Plotting {xlabel} vs {ylabel} for Pareto front and dominated points...")
+            # 1. Pareto front vs. Dominated Points
+            plt.figure(figsize=(7,5))
+            plt.scatter(dominated[:, i], dominated[:, j], alpha=0.4, label="Dominated", color="blue")
+            plt.scatter(front[:, i], front[:, j], alpha=0.8, label="Pareto front", color="red",
+                        marker='o', edgecolors='k', s=60)
+            plt.xlabel(xlabel)
+            plt.ylabel(ylabel)
+            plt.title(f"Pareto Front vs. Dominated Points ({xlabel} vs. {ylabel})")
+            plt.legend()
+            plt.tight_layout()
+            plt.savefig(f"results/{env_id}/pareto_front_vs_dominated_{env_id}_({xlabel} vs. {ylabel}).png", dpi=150)
+            plt.close()
+            
+            # 2. Pareto front only
+            plt.figure(figsize=(7,5))
+            plt.scatter(front[:, i], front[:, j], alpha=0.8, label="Pareto front", color="red",
+                        marker='o', edgecolors='k', s=60)
+            plt.xlabel(xlabel)
+            plt.ylabel(ylabel)
+            plt.title(f"Pareto Front ({xlabel} vs. {ylabel})")
+            plt.legend()
+            plt.tight_layout()
+            plt.savefig(f"results/{env_id}/pareto_front_{env_id}_({xlabel} vs. {ylabel}).png", dpi=150)
+            plt.close()
+
+        filtered_front = select_points_by_crowd_distance(front, n_to_select)
+        hv = hypervolume(ref_point=ref_point, points=front)
+        sprs = sparsity(front)
+        eum = expected_utility(front, weights_list)
+        card = len(front)
+        print("Hypervolume of Pareto front:", hv)
+        print("Sparsity of Pareto front:", sprs)
+        print("Expected utility of Pareto front:", eum)
+        print("Cardinality of Pareto front:", card)
+
+        print(np.max(front, axis=0))
+        pickle.dump({
+            "rewards": rewards_list,
+            "weights": weights_list,
+            "mask": mask,
+            "pareto_front": front,
+            "hypervolume": hv,
+            "sparsity": sprs,
+            "expected_utility": eum,
+            "cardinality": card,
+        }, open(f"results/{env_id}/eval_results_{env_id}.pkl", "wb"))
+
+        data = {
+            "run_id": run_id,
+            "training_seed": training_seed,
+            "hypervolume": hv,
+            "sparsity": sprs,
+            "expected_utility": eum,
+            "cardinality": card,
+            **metrics,
+        }
+        df = pd.DataFrame([data])
+        filepath = f"results/{env_id}/metrics_d3po_{exp_note}.csv"
+        df.to_csv(filepath, mode="a", index=False, header=not os.path.isfile(filepath))
+
+if __name__ == "__main__":
+    fire.Fire(main)
