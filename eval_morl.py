@@ -125,8 +125,6 @@ def main(run_pattern: str):
     num_eval_weights = 1000
     num_eval_episodes = 1000
     num_envs = num_eval_episodes
-    print(run_pattern)
-    print(model_paths)
     if "deep-sea-treasure" in run_pattern:
         env_id = "deep-sea-treasure-v0"
         ref_point = np.array([0.0, -50.0])
@@ -146,6 +144,7 @@ def main(run_pattern: str):
     labels = [str(i) for i in range(reward_size)]  # Adjust based on the environment
     gamma = 0.99
     n_to_select = 2048
+    seed_metrics = []
 
     for model_path in model_paths:
         with open(model_path / "hparams.json", "r") as f:
@@ -163,9 +162,8 @@ def main(run_pattern: str):
             )
         else:
             vec_envs = mo_gym.wrappers.vector.MOSyncVectorEnv(
-                [lambda: mo_gym.make(env_id, max_episode_steps = 1000) for _ in range(num_envs)]
+                [lambda: mo_gym.make(env_id, max_episode_steps=1000) for _ in range(num_envs)]
             )
-
 
         try: 
             norm_stats = pickle.load(open(model_path / "norm_stats.pkl", "rb"))
@@ -218,7 +216,6 @@ def main(run_pattern: str):
 
             obs, _ = vec_envs.reset()
             # Same preference across all parallel environments
-
             curr_weights = torch.tensor(
                 np.tile(weight, (num_envs, 1)),
                 dtype=torch.float32
@@ -232,7 +229,6 @@ def main(run_pattern: str):
             gammas = np.ones((num_envs, 1))
 
             # Track which environments have completed
-
             finished = np.zeros(num_envs, dtype=bool)
 
             while not np.all(finished):
@@ -354,18 +350,26 @@ def main(run_pattern: str):
             "cardinality": card,
         }, open(f"results/{env_id}/eval_results_{env_id}.pkl", "wb"))
 
-        data = {
-            "run_id": run_id,
-            "training_seed": training_seed,
-            "hypervolume": hv,
+        seed_metrics.append({
+            "seed": training_seed,
+            "hv": hv,
             "sparsity": sprs,
-            "expected_utility": eum,
+            "eum": eum,
             "cardinality": card,
             **metrics,
-        }
-        df = pd.DataFrame([data])
-        filepath = f"results/{env_id}/metrics_d3po_{exp_note}.csv"
-        df.to_csv(filepath, mode="a", index=False, header=not os.path.isfile(filepath))
+        })
+
+    metrics_df = pd.DataFrame(seed_metrics)
+    metric_cols = [c for c in metrics_df.columns if c != "seed"]
+    summary = {}
+    for col in metric_cols:
+        summary[f"{col}_mean"] = metrics_df[col].mean()
+        summary[f"{col}_std"] = metrics_df[col].std(ddof=1)
+    summary["n_seeds"] = len(seed_metrics)
+    summary_df = pd.DataFrame([summary])
+    filepath = f"results/{env_id}/metrics_d3po_{exp_note}.csv"
+    summary_df.to_csv(filepath, mode="a", index=False, header=not os.path.isfile(filepath))
+
 
 if __name__ == "__main__":
     fire.Fire(main)
