@@ -123,7 +123,7 @@ def main(run_pattern: str):
     assert model_paths, f"No runs found matching pattern: {run_pattern}"
 
     num_eval_weights = 1000
-    num_eval_episodes = 1000
+    num_eval_episodes = 100    
     num_envs = num_eval_episodes
     if "deep-sea-treasure" in run_pattern:
         env_id = "deep-sea-treasure-v0"
