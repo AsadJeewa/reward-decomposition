@@ -142,7 +142,7 @@ def main(run_pattern: str):
         exit()
 
     labels = [str(i) for i in range(reward_size)]  # Adjust based on the environment
-    gamma = 0.99
+    gamma = hparams["gamma"]
     n_to_select = 2048
     seed_metrics = []
 
