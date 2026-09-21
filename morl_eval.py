@@ -150,7 +150,7 @@ def main(run_pattern: str):
     for model_path in model_paths:
         with open(model_path / "hparams.json", "r") as f:
             hparams = json.load(f)
-        gamma = hparams["gamma"]
+        gamma = hparams.get("gamma", 0.99)
         training_seed = hparams["seed"]
         if not os.path.exists(f"results/{env_id}"):
             os.makedirs(f"results/{env_id}", exist_ok=True)

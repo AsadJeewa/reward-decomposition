@@ -118,7 +118,6 @@ def run_ppo(
     num_minibatches: int = 32,
     learning_rate: float = 0.0001,
     gamma: float = 0.995,
-    eval_gamma: float = 0.99,
     gae_lambda: float = 0.95,
     surrogate_clip_threshold: float = 0.2,
     entropy_loss_coefficient: float = 0.05,
@@ -234,7 +233,7 @@ def run_ppo(
         )
     if normalize_observations:
         envs = NormalizeObservation(envs)
-    envs = mo_gym.wrappers.vector.MORecordEpisodeStatistics(envs, gamma=eval_gamma)
+    envs = mo_gym.wrappers.vector.MORecordEpisodeStatistics(envs, gamma=gamma)
 
     # Separate environments for current-policy evaluation so evaluation does not
     # disturb the on-policy training rollouts.
@@ -400,7 +399,6 @@ def run_ppo(
             "num_minibatches": num_minibatches,
             "learning_rate": learning_rate,
             "gamma": gamma,
-            "eval_gamma": eval_gamma,
             "gae_lambda": gae_lambda,
             "surrogate_clip_threshold": surrogate_clip_threshold,
             "entropy_loss_coefficient": entropy_loss_coefficient,
