@@ -128,7 +128,7 @@ def run_ppo(
     normalize_rewards: bool = True,
     clip_value_function_loss: bool = False,
     max_grad_norm: float = 0.5,
-    diversity_scale: float = 0.05,
+    diversity_scale: float = 1.0,
     target_kl: float = None,
     anneal_lr: bool = False,
     rpo_alpha: float = None,
