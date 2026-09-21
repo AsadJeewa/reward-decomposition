@@ -140,6 +140,8 @@ def run_ppo(
     use_wandb: bool = False,
     save_model: bool = True,
     eval_updates_freq: int = 5,
+    eval_num_weights: int = 100,
+    eval_num_episodes: int = 5,
     ref_point: str = None
 ):
     """
@@ -234,6 +236,32 @@ def run_ppo(
         envs = NormalizeObservation(envs)
     envs = mo_gym.wrappers.vector.MORecordEpisodeStatistics(envs, gamma=eval_gamma)
 
+    # Separate environments for current-policy evaluation so evaluation does not
+    # disturb the on-policy training rollouts.
+    if env_id == "building":
+        eval_envs = mo_gym.wrappers.vector.MOSyncVectorEnv(
+            [
+                lambda: BuildingEnv_9d(
+                    ParameterGenerator(
+                        Building='OfficeLarge',
+                        Weather='Warm_Marine',
+                        Location='ElPaso',
+                    )
+                )
+                for _ in range(eval_num_episodes)
+            ]
+        )
+    else:
+        eval_envs = mo_gym.wrappers.vector.MOSyncVectorEnv(
+            [
+                lambda: mo_gym.make(env_id, max_episode_steps=1000)
+                for _ in range(eval_num_episodes)
+            ]
+        )
+
+    if normalize_observations:
+        eval_envs = NormalizeObservation(eval_envs)
+
     print(exp_name, scalar_reward, envs.rewards_shape)
     print(envs.observation_space, envs.action_space)
     
@@ -301,6 +329,8 @@ def run_ppo(
         "scalar_reward": scalar_reward,
         "diversity_scale": diversity_scale,
         "eval_updates_freq": eval_updates_freq,
+        "eval_num_weights": eval_num_weights,
+        "eval_num_episodes": eval_num_episodes,
         "ref_point": ref_point.tolist()
     }, 
         reward_size = envs.rewards_shape[-1])
@@ -335,7 +365,10 @@ def run_ppo(
         scalar_reward=scalar_reward,
         pareto_archive=pareto_archive,
         diversity_scale=diversity_scale,
-        eval_updates_freq=eval_updates_freq
+        eval_updates_freq=eval_updates_freq,
+        eval_envs=eval_envs,
+        eval_num_weights=eval_num_weights,
+        eval_num_episodes=eval_num_episodes,
     )
     print(ppo.agent)
     # Train the agent
@@ -367,6 +400,7 @@ def run_ppo(
             "num_minibatches": num_minibatches,
             "learning_rate": learning_rate,
             "gamma": gamma,
+            "eval_gamma": eval_gamma,
             "gae_lambda": gae_lambda,
             "surrogate_clip_threshold": surrogate_clip_threshold,
             "entropy_loss_coefficient": entropy_loss_coefficient,
@@ -382,7 +416,11 @@ def run_ppo(
             "rpo_alpha": rpo_alpha,
             "seed": seed,
             "diversity_scale": diversity_scale,
+            "eval_updates_freq": eval_updates_freq,
+            "eval_num_weights": eval_num_weights,
+            "eval_num_episodes": eval_num_episodes,
             "ref_point": ref_point.tolist()
+
         }
         with open(hparams_path, "w") as f:
             json.dump(hparams_to_json, f, indent = 4)
@@ -412,6 +450,7 @@ def run_ppo(
 
     # Close environments
     envs.close()
+    eval_envs.close()
 
 
 if __name__ == "__main__":

@@ -5,9 +5,10 @@ import torch
 import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
 from torch.distributions.dirichlet import Dirichlet
-from morl_baselines.common.pareto import ParetoArchive
+from morl_baselines.common.pareto import ParetoArchive, filter_pareto_dominated
+from morl_baselines.common.performance_indicators import hypervolume, sparsity, expected_utility
+from morl_baselines.common.weights import equally_spaced_weights
 import wandb
-from ppo.utils import evaluate_agent_metrics
 
 class LinearLRSchedule:
     def __init__(self, optimizer, initial_lr, total_updates):
@@ -167,6 +168,9 @@ class PPO:
         pareto_archive = ParetoArchive(),
         diversity_scale = 1,
         eval_updates_freq = 5,
+        eval_envs = None,
+        eval_num_weights = 100,
+        eval_num_episodes = 5,
     ):
         """
         Proximal Policy Optimization (PPO) algorithm implementation.
@@ -270,12 +274,84 @@ class PPO:
         self.negative = negative
         self.diversity_scale = diversity_scale
 
-        self.eval_updates_freq = eval_updates_freq 
+        self.eval_updates_freq = eval_updates_freq
+        self.eval_envs = eval_envs
+        self.eval_num_weights = eval_num_weights
+        self.eval_num_episodes = eval_num_episodes
 
         self.best_hv = -np.inf
 
     def create_lr_scheduler(self, num_policy_updates):
         return LinearLRSchedule(self.optimizer, self.initial_lr, num_policy_updates)
+
+    def evaluate_current_policy(self, ref_point):
+        """Evaluate the current D3PO policy on a fixed preference set.
+
+        This is deliberately separate from the cumulative training Pareto archive:
+        the returned metrics describe the policy at the current checkpoint.
+        """
+        if self.eval_envs is None:
+            return None
+
+        eval_weights = equally_spaced_weights(
+            dim=self.reward_size,
+            n=self.eval_num_weights,
+            seed=1000,
+        )
+
+        all_returns = []
+
+        for w in eval_weights:
+            obs, _ = self.eval_envs.reset()
+            returns = np.zeros(
+                (self.eval_num_episodes, self.reward_size), dtype=np.float64
+            )
+            gammas = np.ones(self.eval_num_episodes, dtype=np.float64)
+            done = np.zeros(self.eval_num_episodes, dtype=bool)
+
+            while not np.all(done):
+                obs_tensor = torch.as_tensor(
+                    obs, dtype=torch.float32, device=self.device
+                )
+                w_tensor = torch.as_tensor(
+                    np.tile(w, (self.eval_num_episodes, 1)),
+                    dtype=torch.float32,
+                    device=self.device,
+                )
+
+                with torch.no_grad():
+                    actions, _ = self.agent.predict(
+                        obs_tensor,
+                        w_tensor,
+                        deterministic=True,
+                        device=self.device,
+                    )
+
+                obs, rewards, terminated, truncated, _ = self.eval_envs.step(
+                    np.asarray(actions)
+                )
+
+                active = ~done
+                returns[active] += gammas[active, None] * np.asarray(rewards)[active]
+                gammas[active] *= self.gamma
+                done |= np.asarray(terminated) | np.asarray(truncated)
+
+            all_returns.append(returns.mean(axis=0))
+
+        all_returns = np.asarray(all_returns)
+        front = np.asarray(
+            list(filter_pareto_dominated(all_returns.tolist())),
+            dtype=np.float64,
+        )
+
+        return {
+            "eval/hypervolume": hypervolume(
+                ref_point=np.asarray(ref_point), points=front
+            ),
+            "eval/sparsity": sparsity(front),
+            "eval/eum": expected_utility(front, eval_weights),
+            "eval/cardinality": len(front),
+        }
 
     def learn(self, total_timesteps, ref_point):
         """
@@ -351,24 +427,25 @@ class PPO:
             self.logger.log_policy_update(update_results, self._global_step)
 
             if update % self.eval_updates_freq == 0:   # every n PPO updates
-                metrics = evaluate_agent_metrics(
-                    self.pareto_archive,
-                    ref_point=ref_point,
-                    n_to_select=2048
-                )
+                metrics = self.evaluate_current_policy(ref_point)
 
-                if metrics:
+                if metrics and self.logger.use_wandb:
                     wandb.log(
                         {
-                            **metrics, #logs Hypervolume etc.
-                            "global_step": self._global_step
-                        }
+                            **metrics,
+                            "global_step": self._global_step,
+                        },
+                        step=self._global_step,
                     )
+
                 if metrics and "eval/hypervolume" in metrics:
                     if metrics["eval/hypervolume"] > self.best_hv:
                         self.best_hv = metrics["eval/hypervolume"]
                         if self.logger.use_wandb:
-                            wandb.log({"best/HV": self.best_hv}, step=self._global_step)
+                            wandb.log(
+                                {"best/HV": self.best_hv},
+                                step=self._global_step,
+                            )
 
         print(f"Training completed. Total steps: {self._global_step}")
         if self.logger.use_wandb:
