@@ -12,7 +12,7 @@ import os
 from pathlib import Path
 from envs.building_env import BuildingEnv_9d
 from envs.utils_building import ParameterGenerator
-from plot_utils import plot_preferences
+from plot_utils import plot_mean_preferences
 from eval_utils import compute_all_controllability_metrics
 import pandas as pd
 from scipy.stats import spearmanr
@@ -118,8 +118,7 @@ def normalize_returns(returns, max_r=None, min_r=None):
 def main(run_pattern: str):
     # Set up vectorized env
     # model_path = "runs/minecart-v0__main_ppo__2026-08-07 11.02.05.314703__1__positive/"
-    run_pattern = "runs/D3PO_deep-sea-treasure-v0__main_ppo__*__positive"
-    model_paths = sorted(Path(".").glob(run_pattern))
+    model_paths = sorted(Path("runs").glob(run_pattern))
     assert model_paths, f"No runs found matching pattern: {run_pattern}"
 
     num_eval_weights = 1000
@@ -142,14 +141,16 @@ def main(run_pattern: str):
         exit()
 
     labels = [str(i) for i in range(reward_size)]  # Adjust based on the environment
-    gamma = hparams["gamma"]
+
     n_to_select = 2048
     seed_metrics = []
+    seed_weights = []
+    seed_returns = []
 
     for model_path in model_paths:
         with open(model_path / "hparams.json", "r") as f:
             hparams = json.load(f)
-
+        gamma = hparams["gamma"]
         training_seed = hparams["seed"]
         if not os.path.exists(f"results/{env_id}"):
             os.makedirs(f"results/{env_id}", exist_ok=True)
@@ -189,11 +190,8 @@ def main(run_pattern: str):
 
         eval_agent.load_state_dict(torch.load(model_path / "main_ppo.rl_model"))
         # eval_agent.eval()
-        n_points = 30
         exp_note = "default"
         right_angled = True
-        run_id = secrets.token_urlsafe(4)[:6]
-        plot_preferences(run_id=run_id, seed=training_seed, agent=eval_agent, env=env_temp, algo="d3po", n_points=30, exp_note=exp_note, right_angled=right_angled)
 
         # Evaluation preferences: fixed, well-distributed reference directions
         weights = equally_spaced_weights(
@@ -273,6 +271,33 @@ def main(run_pattern: str):
         pbar.close()
         rewards_list = np.asarray(rewards_list)
         weights_list = np.asarray(weights_list)
+        seed_weights.append(weights_list)
+        seed_returns.append(rewards_list)
+
+        run_id = secrets.token_urlsafe(4)[:6]
+
+        plot_df = pd.DataFrame({
+            "run_id": run_id,
+            "training_seed": training_seed,
+            "algo": "d3po",
+            **{f"w{i}": weights_list[:, i] for i in range(reward_size)},
+            **{f"r{i}": rewards_list[:, i] for i in range(reward_size)},
+        })
+
+        if reward_size == 2:
+            plot_df["t"] = weights_list[:, 0]
+            filepath = f"results/{env_id}/pref_line_d3po_{exp_note}.csv"
+        else:
+            plot_df["t"] = weights_list[:, 0]
+            plot_df["s"] = weights_list[:, 1]
+            filepath = f"results/{env_id}/pref_simplex_d3po_{exp_note}.csv"
+
+        plot_df.to_csv(
+            filepath,
+            mode="a",
+            index=False,
+            header=not Path(filepath).is_file(),
+        )
 
         metrics = compute_all_controllability_metrics(weights_list, rewards_list)
         print("Preference controllability:", metrics["preference_controllability"])
@@ -348,7 +373,7 @@ def main(run_pattern: str):
             "sparsity": sprs,
             "expected_utility": eum,
             "cardinality": card,
-        }, open(f"results/{env_id}/eval_results_{env_id}.pkl", "wb"))
+        }, open(f"results/{env_id}/eval_results_{env_id}_seed{training_seed}.pkl", "wb"))
 
         seed_metrics.append({
             "seed": training_seed,
@@ -359,6 +384,15 @@ def main(run_pattern: str):
             **metrics,
         })
 
+        seed_filepath = f"results/{env_id}/metrics_seeds_d3po_{exp_note}.csv"
+
+        pd.DataFrame([seed_metrics[-1]]).to_csv(
+            seed_filepath,
+            mode="a",
+            index=False,
+            header=not os.path.isfile(seed_filepath),
+        )
+
     metrics_df = pd.DataFrame(seed_metrics)
     metric_cols = [c for c in metrics_df.columns if c != "seed"]
     summary = {}
@@ -367,9 +401,30 @@ def main(run_pattern: str):
         summary[f"{col}_std"] = metrics_df[col].std(ddof=1)
     summary["n_seeds"] = len(seed_metrics)
     summary_df = pd.DataFrame([summary])
-    filepath = f"results/{env_id}/metrics_d3po_{exp_note}.csv"
+    filepath = f"results/{env_id}/metrics_summary_d3po_{exp_note}.csv"
     summary_df.to_csv(filepath, mode="a", index=False, header=not os.path.isfile(filepath))
 
+    seed_weights = np.stack(seed_weights, axis=0)
+    seed_returns = np.stack(seed_returns, axis=0)
+
+    mean_weights = seed_weights[0]
+    mean_returns = seed_returns.mean(axis=0)
+
+    std_returns = (
+        seed_returns.std(axis=0, ddof=1)
+        if len(seed_returns) > 1
+        else np.zeros_like(mean_returns)
+    )
+
+    plot_mean_preferences(
+        weights=mean_weights,
+        mean_returns=mean_returns,
+        std_returns=std_returns,
+        algo="d3po",
+        env=env_temp,
+        exp_note=exp_note,
+        right_angled=right_angled,
+)
 
 if __name__ == "__main__":
     fire.Fire(main)
