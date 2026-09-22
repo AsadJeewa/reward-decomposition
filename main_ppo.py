@@ -138,7 +138,7 @@ def run_ppo(
     use_tensorboard: bool = True,
     use_wandb: bool = False,
     save_model: bool = True,
-    eval_updates_freq: int = 5,
+    eval_updates_freq: int = 1000,
     eval_num_weights: int = 100,
     eval_num_episodes: int = 5,
     ref_point: str = None

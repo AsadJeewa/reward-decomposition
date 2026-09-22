@@ -1,0 +1,37 @@
+program: sweep_dst.py
+
+method: grid
+
+metric:
+  name: eval/hypervolume
+  goal: maximize
+
+parameters:
+  env_id:
+    value: deep-sea-treasure-v0
+
+  env_is_discrete:
+    value: true
+
+  total_timesteps:
+    value: 500000
+
+  num_envs:
+    value: 4
+  
+  # PPO optimisation
+  learning_rate:
+    values: [0.0001, 0.0003]
+
+  # 4 envs -> batch sizes 512, 2048, 8192
+  num_rollout_steps:
+    values: [128, 512, 2048]
+
+  entropy_loss_coefficient:
+    values: [0.0, 0.01, 0.05]
+
+  normalize_observations:
+    values: [true, false]
+
+  seed:
+    values: [1, 2]

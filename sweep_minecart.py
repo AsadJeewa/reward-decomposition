@@ -7,13 +7,13 @@ def train():
     with wandb.init():
         config = wandb.config
 
-        config_name = (
-            f"lr={config.learning_rate}_"
-            f"div={config.diversity_scale}_"
-            f"ent={config.entropy_loss_coefficient}"
-        )
+        # config_name = (
+        #     f"lr={config.learning_rate}_"
+        #     f"div={config.diversity_scale}_"
+        #     f"ent={config.entropy_loss_coefficient}"
+        # )
 
-        wandb.run.group = config_name
+        # wandb.run.group = config_name
 
         run_ppo(
             env_id=config.env_id,
