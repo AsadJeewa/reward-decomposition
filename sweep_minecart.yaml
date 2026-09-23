@@ -19,14 +19,14 @@ parameters:
   learning_rate:
     values: [0.0001, 0.0003]
 
-  diversity_scale:
-    values: [0.05, 0.1]
+  num_rollout_steps:
+    values: [128, 256]
 
-  entropy_loss_coefficient:
-    values: [0.01, 0.05]
+  update_epochs:
+    values: [5, 10]
+
+  seed:
+    values: [1, 2]
 
   gamma:
     value: 0.995
-
-  seed:
-      values: [1, 2, 3]
