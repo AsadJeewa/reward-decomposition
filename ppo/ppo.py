@@ -156,6 +156,7 @@ class PPO:
         update_epochs=10,
         num_minibatches=32,
         normalize_advantages=True,
+        normalize_observations=False,
         reward_rms=None,
         clip_value_function_loss=True,
         target_kl=None,
@@ -255,6 +256,7 @@ class PPO:
         self.max_grad_norm = max_grad_norm
         self.update_epochs = update_epochs
         self.normalize_advantages = normalize_advantages
+        self.normalize_observations = normalize_observations
         self.reward_rms = reward_rms
         self.clip_value_function_loss = clip_value_function_loss
         self.target_kl = target_kl
@@ -293,6 +295,14 @@ class PPO:
         if self.eval_envs is None:
             return None
 
+        if self.normalize_observations:
+            # Use the training observation statistics for evaluation
+            self.eval_envs.obs_rms.mean = self.envs.env.obs_rms.mean.copy()
+            self.eval_envs.obs_rms.var = self.envs.env.obs_rms.var.copy()
+            self.eval_envs.obs_rms.count = self.envs.env.obs_rms.count
+
+            self.eval_envs.update_running_mean = False
+            
         eval_weights = equally_spaced_weights(
             dim=self.reward_size,
             n=self.eval_num_weights,

@@ -351,6 +351,7 @@ def run_ppo(
         update_epochs=update_epochs,
         num_minibatches=num_minibatches,
         normalize_advantages=normalize_advantages,
+        normalize_observations=normalize_observations,
         reward_rms=reward_rms if normalize_rewards else None,
         clip_value_function_loss=clip_value_function_loss,
         target_kl=target_kl,
