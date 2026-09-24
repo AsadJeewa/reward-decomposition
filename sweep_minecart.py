@@ -13,7 +13,7 @@ def train():
             total_timesteps=config.total_timesteps,
             learning_rate=config.learning_rate,
             num_rollout_steps=config.num_rollout_steps,
-            update_epochs=config.update_epochs,
+            entropy_loss_coefficient=config.entropy_loss_coefficient,
             gamma=config.gamma,
             seed=config.seed,
             use_wandb=True,
