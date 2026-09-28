@@ -118,7 +118,7 @@ def normalize_returns(returns, max_r=None, min_r=None):
 def main(run_pattern: str):
     # Set up vectorized env
     # model_path = "runs/minecart-v0__main_ppo__2026-08-07 11.02.05.314703__1__positive/"
-    model_paths = sorted(Path("runs").glob(run_pattern))
+    model_paths = sorted(Path("runs/saved").glob(run_pattern))
     assert model_paths, f"No runs found matching pattern: {run_pattern}"
 
     num_eval_weights = 1000
@@ -188,7 +188,13 @@ def main(run_pattern: str):
         else:
             eval_agent = DiscreteAgent(env_temp, reward_size=reward_size).to("cpu")
 
-        eval_agent.load_state_dict(torch.load(model_path / "main_ppo.rl_model"))
+        checkpoint = torch.load(model_path / "main_ppo.rl_model")
+
+        eval_agent.load_state_dict(checkpoint["agent_state_dict"])
+
+        seed = checkpoint["seed"]
+        config = checkpoint["config"]
+
         # eval_agent.eval()
         exp_note = "default"
         right_angled = True
@@ -310,8 +316,6 @@ def main(run_pattern: str):
         mask = pareto_front(rewards_list)
         front = rewards_list[mask]
         dominated = rewards_list[~mask]
-        # print(weights_list[mask])
-        # print(front)
         print("Pareto front shape:", front.shape)
 
         # Hypervolume and sparsity
@@ -321,7 +325,6 @@ def main(run_pattern: str):
         n_obj = front.shape[1]
         pairs = list(itertools.combinations(range(reward_size), 2))
 
-        print(pairs)
 
         for i, j in pairs:
             xlabel = labels[i] if i < len(labels) else f"Objective {i}"

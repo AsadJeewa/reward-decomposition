@@ -54,12 +54,15 @@ def compute_all_controllability_metrics(weights, returns):
 
     co = compute_controllability(weights, returns)
     obj_co = compute_objective_controllability(weights, returns)
+    oco = np.mean(obj_co)
     ls = compute_local_sensitivity(weights, returns)
 
     result = {
         "preference_controllability": co,
+        "objective_controllability": oco,
         "local_sensitivity": ls,
     }
+
     for d, score in enumerate(obj_co):
         result[f"objective_controllability_{d}"] = score
 
