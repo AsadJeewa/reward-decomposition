@@ -21,7 +21,7 @@ def compute_objective_controllability(weights, returns):
     objective_control = []
     for d in range(num_obj):
         if np.std(returns[:, d]) < 1e-8 or np.std(weights[:, d]) < 1e-8:
-            objective_control.append(0.0)
+            objective_control.append(np.nan)
         else:
             corr, _ = spearmanr(weights[:, d], returns[:, d])
             objective_control.append(corr)
@@ -54,7 +54,7 @@ def compute_all_controllability_metrics(weights, returns):
 
     co = compute_controllability(weights, returns)
     obj_co = compute_objective_controllability(weights, returns)
-    oco = np.mean(obj_co)
+    oco = np.nanmean(obj_co)
     ls = compute_local_sensitivity(weights, returns)
 
     result = {
