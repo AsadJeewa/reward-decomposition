@@ -217,8 +217,8 @@ def run_ppo(
         exit()
 
     # Set up device666
-    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    device = torch.device("cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # device = torch.device("cpu") # THIS WAS FIXED
 
     if env_id == "building":
         # Special case for BuildingEnv_9d
@@ -229,7 +229,8 @@ def run_ppo(
     else:
         envs = mo_gym.wrappers.vector.MOSyncVectorEnv(
             # lambda: gym.wrappers.RecordVideo(mo_gym.make(env_id, render_mode = "rgb_array"), f"runs/{run_name}/videos") for _ in range(num_envs)
-            [lambda: mo_gym.make(env_id, max_episode_steps = 1000) for _ in range(num_envs)] #TODO fix record video
+            # [lambda: mo_gym.make(env_id, max_episode_steps = 1000) for _ in range(num_envs)] #TODO fix record video
+            [lambda: mo_gym.make(env_id) for _ in range(num_envs)] #TODO fix record video
         )
     if normalize_observations:
         envs = NormalizeObservation(envs)
