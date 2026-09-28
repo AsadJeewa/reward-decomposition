@@ -6,6 +6,7 @@ from ppo.agent import ContinuousAgent, DiscreteAgent
 import mo_gymnasium as mo_gym
 from morl_baselines.common.performance_indicators import hypervolume, sparsity, expected_utility
 from morl_baselines.common.weights import equally_spaced_weights
+from morl_baselines.common.pareto import filter_pareto_dominated
 from tqdm import tqdm
 import pickle
 import os
@@ -247,17 +248,17 @@ def main(run_pattern: str):
 
                 next_obs, rews, dones, truncs, infos = vec_envs.step(actions)
 
-                env_rewards += gammas * rews
-                gammas *= gamma
+                active = np.logical_not(finished)
+
+                env_rewards[active] += gammas[active] * rews[active]
+                gammas[active] *= gamma
 
                 terminations = np.logical_or(dones, truncs)
-
-                # Only record environments that finish this episode
-                newly_finished = terminations & ~finished
+                newly_finished = terminations & active
 
                 if np.any(newly_finished):
                     episode_returns.extend(
-                        env_rewards[newly_finished]
+                        env_rewards[newly_finished].copy()
                     )
                     finished[newly_finished] = True
 
@@ -312,10 +313,14 @@ def main(run_pattern: str):
 
         # rewards_list = np.vstack(rewards_list)
         # weights_list = np.vstack(weights_list)
-
+        
         mask = pareto_front(rewards_list)
-        front = rewards_list[mask]
+        plot_front = rewards_list[mask]
         dominated = rewards_list[~mask]
+        
+        front = np.asarray(
+            list(filter_pareto_dominated(rewards_list.tolist()))
+        )
         print("Pareto front shape:", front.shape)
 
         # Hypervolume and sparsity
