@@ -5,6 +5,18 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 from scipy.stats import pearsonr, spearmanr
 
+def get_dst_treasure_returns(gamma):
+    treasures = np.array([0.7, 8.2, 11.5, 14.0, 15.1, 16.1, 19.6, 20.3, 22.4, 23.7])
+    steps = np.array([1, 3, 5, 7, 8, 9, 13, 14, 17, 19])
+
+    treasure_returns = gamma ** (steps - 1) * treasures
+
+    if gamma == 1.0:
+        time_returns = -steps.astype(float)
+    else:
+        time_returns = -(1 - gamma ** steps) / (1 - gamma)
+
+    return np.column_stack((treasure_returns, time_returns))
 
 def sample_line(n_points):
     return np.linspace(0, 1, n_points)
@@ -170,7 +182,7 @@ def evaluate_simplex(
     return df
 
 
-def plot_mean_line(weights, mean_returns, std_returns, algo, env_id, exp_note=""):
+def plot_mean_line(weights, mean_returns, std_returns, algo, env_id, gamma, exp_note=""):
     t = weights[:, 0]
     order = np.argsort(t)
 
@@ -190,20 +202,7 @@ def plot_mean_line(weights, mean_returns, std_returns, algo, env_id, exp_note=""
             alpha=0.2,
         )
 
-    treasure_returns = np.array(
-        [
-            [0.7, -1],
-            [8.2, -3],
-            [11.5, -5],
-            [14.0, -7],
-            [15.1, -8],
-            [16.1, -9],
-            [19.6, -13],
-            [20.3, -14],
-            [22.4, -17],
-            [23.7, -19],
-        ]
-    )
+    treasure_returns = get_dst_treasure_returns(gamma)
 
     if mean_returns.shape[1] == 2 and "deep-sea-treasure" in env_id:
         optimal_returns = []
@@ -226,7 +225,7 @@ def plot_mean_line(weights, mean_returns, std_returns, algo, env_id, exp_note=""
 
     plt.xlabel("t (w0)")
     plt.ylabel("Return")
-    plt.title(f"{algo} Preference Line - Mean +/- Std")
+    plt.title("Mean Preference Line")
     plt.legend()
     plt.grid(True)
     plt.tight_layout()
@@ -235,15 +234,13 @@ def plot_mean_line(weights, mean_returns, std_returns, algo, env_id, exp_note=""
 
 
 def plot_mean_simplex(
-    weights,
-    mean_returns,
-    std_returns,
-    algo,
-    env_id,
-    exp_note="",
-    right_angled=True,
+    weights, mean_returns, std_returns, algo, env_id, exp_note="", right_angled=True
 ):
     num_obj = mean_returns.shape[1]
+
+    # Shared RAW RETURN scales across algorithms
+    mean_vmin = [0.0, 0.0, -3.9734]
+    mean_vmax = [1.0494, 1.0330, -0.2809]
 
     w0 = weights[:, 0]
     w1 = weights[:, 1]
@@ -297,21 +294,31 @@ def plot_mean_simplex(
         for i in range(num_obj):
             vals = values[:, i].copy()
 
-            if statistic == "mean" and i == 2 and np.all(values[:, i] < 0):
-                cbar_label = f"Objective {i} -log(-return)"
-                vals = -np.log(-vals + 1e-6)
-            else:
-                cbar_label = f"Objective {i} return"
+            # Reverse objective 2 because it is minimised.
+            cmap = "viridis_r" if i == 2 else "viridis"
 
-            alpha = np.where(vals == 0, 1.0, 0.6)
+            if statistic == "mean":
+                plot_vmin = mean_vmin[i]
+                plot_vmax = mean_vmax[i]
+                cbar_label = f"Objective {i} return"
+            else:
+                # Standard deviations are non-negative.
+                plot_vmin = 0.0
+                plot_vmax = std_returns[:, i].max()
+                cbar_label = f"Objective {i} return std."
+
+                # For std, larger is not better/worse, so don't reverse.
+                cmap = "viridis"
 
             sc = axes[i].scatter(
                 plot_x,
                 plot_y,
                 c=vals,
                 s=20,
-                cmap="viridis",
-                alpha=alpha,
+                vmin=plot_vmin,
+                vmax=plot_vmax,
+                cmap=cmap,
+                alpha=0.7,
             )
 
             axes[i].set_title(f"Objective {i} {statistic}")
@@ -327,23 +334,25 @@ def plot_mean_simplex(
     _plot_simplex(mean_returns, "mean")
     _plot_simplex(std_returns, "std")
 
+    # Separate raw mean-return plots
     for i in range(num_obj):
         vals = mean_returns[:, i].copy()
+        cmap = "viridis_r" if i == 2 else "viridis"
 
         fig, ax = plt.subplots(figsize=(6, 5))
-
-        alpha = np.where(vals == 0, 1.0, 0.6)
 
         sc = ax.scatter(
             plot_x,
             plot_y,
             c=vals,
             s=20,
-            cmap="viridis",
-            alpha=alpha,
+            vmin=mean_vmin[i],
+            vmax=mean_vmax[i],
+            cmap=cmap,
+            alpha=0.7,
         )
 
-        ax.set_title(f"{algo} Objective {i} Mean Return")
+        ax.set_title(f"Objective {i} Mean Return")
         _decorate_axis(ax)
         plt.colorbar(sc, ax=ax, label=f"Objective {i} return")
 
@@ -399,6 +408,7 @@ def plot_mean_preferences(
     std_returns,
     algo,
     env,
+    gamma,
     exp_note="",
     right_angled=True,
 ):
@@ -409,6 +419,7 @@ def plot_mean_preferences(
             std_returns,
             algo,
             env.spec.id,
+            gamma,
             exp_note,
         )
 

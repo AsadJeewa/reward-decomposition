@@ -430,6 +430,7 @@ def main(run_pattern: str):
         std_returns=std_returns,
         algo="d3po",
         env=env_temp,
+        gamma=gamma,
         exp_note=exp_note,
         right_angled=right_angled,
 )
