@@ -14,9 +14,10 @@ def get_dst_treasure_returns(gamma):
     if gamma == 1.0:
         time_returns = -steps.astype(float)
     else:
-        time_returns = -(1 - gamma ** steps) / (1 - gamma)
+        time_returns = -(1 - gamma**steps) / (1 - gamma)
 
     return np.column_stack((treasure_returns, time_returns))
+
 
 def sample_line(n_points):
     return np.linspace(0, 1, n_points)
@@ -41,7 +42,7 @@ def sample_simplex_grid(n_points):
     return np.array(ts), np.array(ss)
 
 
-def evaluate_line(run_id, seed, agent, algo, env, n_points=50, exp_note=""):
+def evaluate_line(run_id, seed, agent, algo, env, gamma, n_points=50, exp_note=""):
     algo_lower = algo.lower()
 
     is_d3po = "d3po" in algo_lower
@@ -61,7 +62,7 @@ def evaluate_line(run_id, seed, agent, algo, env, n_points=50, exp_note=""):
         done = False
 
         ep_return = np.zeros(env.unwrapped.reward_dim, dtype=np.float32)
-
+        discount = 1.0
         while not done:
             obs_tensor = torch.tensor(obs, dtype=torch.float32)
             w_tensor = torch.tensor(w, dtype=torch.float32)
@@ -80,7 +81,8 @@ def evaluate_line(run_id, seed, agent, algo, env, n_points=50, exp_note=""):
 
             obs, vec_reward, terminated, truncated, _ = env.step(action)
 
-            ep_return += vec_reward
+            ep_return += discount * vec_reward
+            discount *= gamma
             done = terminated or truncated
 
         rows.append(
@@ -97,25 +99,13 @@ def evaluate_line(run_id, seed, agent, algo, env, n_points=50, exp_note=""):
     df = pd.DataFrame(rows)
 
     filepath = f"results/{env.spec.id}/pref_line_{algo}_{exp_note}.csv"
-    df.to_csv(
-        filepath,
-        mode="a",
-        index=False,
-        header=not Path(filepath).is_file(),
-    )
+    df.to_csv(filepath, mode="a", index=False, header=not Path(filepath).is_file())
 
     return df
 
 
 def evaluate_simplex(
-    run_id,
-    seed,
-    agent,
-    algo,
-    env,
-    n_points=10,
-    exp_note="",
-    right_angled=True,
+    run_id, seed, agent, algo, env, n_points=10, exp_note="", right_angled=True
 ):
     algo_lower = algo.lower()
 
@@ -172,17 +162,16 @@ def evaluate_simplex(
     df = pd.DataFrame(rows)
 
     filepath = f"results/{env.spec.id}/pref_simplex_{algo}_{exp_note}.csv"
-    df.to_csv(
-        filepath,
-        mode="a",
-        index=False,
-        header=not Path(filepath).is_file(),
-    )
+    df.to_csv(filepath, mode="a", index=False, header=not Path(filepath).is_file())
 
     return df
 
 
 def plot_mean_line(weights, mean_returns, std_returns, algo, env_id, gamma, exp_note=""):
+    """
+    Plot mean +/- std return for each preference across training runs.
+    Uses returns already produced by the main evaluation pass.
+    """
     t = weights[:, 0]
     order = np.argsort(t)
 
@@ -202,28 +191,24 @@ def plot_mean_line(weights, mean_returns, std_returns, algo, env_id, gamma, exp_
             alpha=0.2,
         )
 
+    # Ground-truth optimal return for DST
     treasure_returns = get_dst_treasure_returns(gamma)
 
     if mean_returns.shape[1] == 2 and "deep-sea-treasure" in env_id:
         optimal_returns = []
-
+        optimal_treasures = []
         for ti in t:
             w = np.array([ti, 1.0 - ti])
             utilities = treasure_returns @ w
             best = np.argmax(utilities)
             optimal_returns.append(treasure_returns[best])
-
+            optimal_treasures.append(best + 1)
         optimal_returns = np.array(optimal_returns)
-
+        optimal_treasures = np.array(optimal_treasures)
         for i in range(2):
-            plt.plot(
-                t,
-                optimal_returns[:, i],
-                linestyle="--",
-                label=f"Optimal Obj {i}",
-            )
+            plt.plot(t, optimal_returns[:, i], linestyle="--", label=f"Optimal Obj {i}")
 
-    plt.xlabel("t (w0)")
+    plt.xlabel("Treasure value weight $w_0$" if "deep-sea-treasure" in env_id else "t (w0)")
     plt.ylabel("Return")
     plt.title("Mean Preference Line")
     plt.legend()
@@ -231,6 +216,40 @@ def plot_mean_line(weights, mean_returns, std_returns, algo, env_id, gamma, exp_
     plt.tight_layout()
     plt.savefig(f"results/{env_id}/pref_line_{algo}_{exp_note}_mean.png")
     plt.close()
+    if mean_returns.shape[1] == 2 and "deep-sea-treasure" in env_id:
+        distances = np.linalg.norm(
+            mean_returns[:, None, :] - treasure_returns[None, :, :],
+            axis=2,
+        )
+        learned_treasures = np.argmin(distances, axis=1) + 1
+        plt.figure(figsize=(7, 4))
+        plt.step(
+            t, optimal_treasures, where="mid", linewidth=2, label="Optimal partition"
+        )
+        plt.step(
+            t, learned_treasures, where="mid", linewidth=2, label="Learned partition"
+        )
+        plt.xlabel("Treasure value weight $w_0$")
+        plt.ylabel("Treasure regime")
+        plt.yticks(range(1, 11), [f"T{i}" for i in range(1, 11)])
+        plt.xlim(0, 1)
+        plt.legend()
+        plt.grid(axis="x", alpha=0.3)
+        plt.tight_layout()
+        plt.savefig(f"results/{env_id}/pref_partition_{algo}_{exp_note}_mean.png")
+        plt.close()
+        weights_line = np.column_stack([t, 1.0 - t])
+        optimal_utility = np.max(weights_line @ treasure_returns.T, axis=1)
+        learned_utility = np.sum(weights_line * mean_returns, axis=1)
+        regret = optimal_utility - learned_utility
+        plt.figure(figsize=(7, 4))
+        plt.plot(t, regret)
+        plt.xlabel("Treasure value weight $w_0$")
+        plt.ylabel("Scalarised regret")
+        plt.grid(True)
+        plt.tight_layout()
+        plt.savefig(f"results/{env_id}/pref_regret_{algo}_{exp_note}_mean.png")
+        plt.close()
 
 
 def plot_mean_simplex(
@@ -326,9 +345,7 @@ def plot_mean_simplex(
             plt.colorbar(sc, ax=axes[i], label=cbar_label)
 
         plt.tight_layout()
-        plt.savefig(
-            f"results/{env_id}/pref_simplex_{algo}_{exp_note}_{statistic}.png"
-        )
+        plt.savefig(f"results/{env_id}/pref_simplex_{algo}_{exp_note}_{statistic}.png")
         plt.close()
 
     _plot_simplex(mean_returns, "mean")
@@ -357,31 +374,19 @@ def plot_mean_simplex(
         plt.colorbar(sc, ax=ax, label=f"Objective {i} return")
 
         plt.tight_layout()
-        plt.savefig(
-            f"results/{env_id}/pref_simplex_{algo}_{exp_note}_obj{i}_raw.png"
-        )
+        plt.savefig(f"results/{env_id}/pref_simplex_{algo}_{exp_note}_obj{i}_raw.png")
         plt.close()
 
-
 def evaluate_preferences(
-    run_id,
-    seed,
-    agent,
-    env,
-    algo,
-    n_points=50,
-    exp_note="",
-    right_angled=True,
+    run_id, seed, agent, env, algo, gamma, n_points=50, exp_note="", right_angled=True
 ):
+    """
+    Evaluate one training seed and return the preference/return DataFrame.
+    Plotting across seeds is handled separately by plot_mean_preferences().
+    """
     if env.unwrapped.reward_dim == 2:
         return evaluate_line(
-            run_id,
-            seed,
-            agent,
-            algo,
-            env,
-            n_points=n_points,
-            exp_note=exp_note,
+            run_id, seed, agent, algo, env, gamma, n_points=n_points, exp_note=exp_note
         )
 
     elif env.unwrapped.reward_dim == 3:
@@ -403,26 +408,15 @@ def evaluate_preferences(
 
 
 def plot_mean_preferences(
-    weights,
-    mean_returns,
-    std_returns,
-    algo,
-    env,
-    gamma,
-    exp_note="",
-    right_angled=True,
+    weights, mean_returns, std_returns, algo, env, gamma, exp_note="", right_angled=True
 ):
+    """
+    Plot aggregate preference-response results using the single evaluation pass.
+    """
     if env.unwrapped.reward_dim == 2:
         plot_mean_line(
-            weights,
-            mean_returns,
-            std_returns,
-            algo,
-            env.spec.id,
-            gamma,
-            exp_note,
+            weights, mean_returns, std_returns, algo, env.spec.id, gamma, exp_note
         )
-
     elif env.unwrapped.reward_dim == 3:
         plot_mean_simplex(
             weights,
@@ -449,16 +443,9 @@ def plot_correlations(env, algo, all_weights, all_returns, exp_note=""):
         p_corr, _ = pearsonr(all_weights[:, obj], all_returns[:, obj])
         s_corr, _ = spearmanr(all_weights[:, obj], all_returns[:, obj])
 
-        print(
-            f"Obj {obj} | Pearson: {p_corr:.3f} | "
-            f"Spearman: {s_corr:.3f}"
-        )
+        print(f"Obj {obj} | Pearson: {p_corr:.3f} | Spearman: {s_corr:.3f}")
 
-    fig, axes = plt.subplots(
-        1,
-        num_obj,
-        figsize=(5 * num_obj, 4),
-    )
+    fig, axes = plt.subplots(1, num_obj, figsize=(5 * num_obj, 4))
 
     if num_obj == 1:
         axes = [axes]
@@ -480,7 +467,5 @@ def plot_correlations(env, algo, all_weights, all_returns, exp_note=""):
         axes[i].set_title(f"Obj {i}")
 
     plt.tight_layout()
-    plt.savefig(
-        f"results/{env.spec.id}/weight_return_scatter_{algo}_{exp_note}.png"
-    )
+    plt.savefig(f"results/{env.spec.id}/weight_return_scatter_{algo}_{exp_note}.png")
     plt.close()
