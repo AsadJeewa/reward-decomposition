@@ -105,7 +105,7 @@ def evaluate_line(run_id, seed, agent, algo, env, gamma, n_points=50, exp_note="
 
 
 def evaluate_simplex(
-    run_id, seed, agent, algo, env, n_points=10, exp_note="", right_angled=True
+    run_id, seed, agent, algo, env, gamma, n_points=10, exp_note="", right_angled=True
 ):
     algo_lower = algo.lower()
 
@@ -126,6 +126,7 @@ def evaluate_simplex(
         done = False
 
         ep_return = np.zeros(env.unwrapped.reward_dim, dtype=np.float32)
+        discount = 1.0
 
         while not done:
             obs_tensor = torch.tensor(obs, dtype=torch.float32)
@@ -144,7 +145,8 @@ def evaluate_simplex(
 
             obs, vec_reward, terminated, truncated, _ = env.step(action)
 
-            ep_return += vec_reward
+            ep_return += discount * vec_reward
+            discount *= gamma
             done = terminated or truncated
 
         rows.append(
@@ -167,11 +169,12 @@ def evaluate_simplex(
     return df
 
 
-def plot_mean_line(weights, mean_returns, std_returns, algo, env_id, gamma, exp_note=""):
+def plot_mean_line(weights, mean_returns, std_returns, algo, env, gamma, exp_note=""):
     """
     Plot mean +/- std return for each preference across training runs.
     Uses returns already produced by the main evaluation pass.
     """
+    env_id = env.spec.id
     t = weights[:, 0]
     order = np.argsort(t)
 
@@ -253,8 +256,9 @@ def plot_mean_line(weights, mean_returns, std_returns, algo, env_id, gamma, exp_
 
 
 def plot_mean_simplex(
-    weights, mean_returns, std_returns, algo, env_id, exp_note="", right_angled=True
+    weights, mean_returns, std_returns, algo, env, gamma, exp_note="", right_angled=True
 ):
+    env_id = env.spec.id
     num_obj = mean_returns.shape[1]
 
     # Shared RAW RETURN scales across algorithms
@@ -377,6 +381,79 @@ def plot_mean_simplex(
         plt.savefig(f"results/{env_id}/pref_simplex_{algo}_{exp_note}_obj{i}_raw.png")
         plt.close()
 
+    if "minecart" in env_id:
+        reference_front = np.array(env.unwrapped.pareto_front(gamma=gamma))
+
+        utilities = weights @ reference_front.T
+        reference_indices = np.argmax(utilities, axis=1)
+
+        mins = reference_front.min(axis=0)
+        maxs = reference_front.max(axis=0)
+        scale = np.where(maxs > mins, maxs - mins, 1.0)
+
+        reference_norm = (reference_front - mins) / scale
+        learned_norm = (mean_returns - mins) / scale
+
+        distances = np.linalg.norm(
+            learned_norm[:, None, :] - reference_norm[None, :, :],
+            axis=2,
+        )
+        learned_indices = np.argmin(distances, axis=1)
+
+        fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+
+        sc = axes[0].scatter(
+            plot_x,
+            plot_y,
+            c=reference_indices,
+            s=20,
+            cmap="tab20",
+            alpha=0.7,
+        )
+        axes[0].set_title("Approximate reference partition")
+        _decorate_axis(axes[0])
+
+        axes[1].scatter(
+            plot_x,
+            plot_y,
+            c=learned_indices,
+            s=20,
+            cmap="tab20",
+            alpha=0.7,
+        )
+        axes[1].set_title("Learned partition")
+        _decorate_axis(axes[1])
+
+        plt.colorbar(sc, ax=axes, label="Reference solution index")
+        plt.savefig(
+            f"results/{env_id}/pref_partition_{algo}_{exp_note}_mean.png"
+        )
+        plt.close()
+
+        reference_utility = np.max(weights @ reference_front.T, axis=1)
+        learned_utility = np.sum(weights * mean_returns, axis=1)
+        regret = reference_utility - learned_utility
+
+        fig, ax = plt.subplots(figsize=(6, 5))
+
+        sc = ax.scatter(
+            plot_x,
+            plot_y,
+            c=regret,
+            s=20,
+            cmap="viridis",
+            alpha=0.7,
+        )
+
+        _decorate_axis(ax)
+        plt.colorbar(sc, ax=ax, label="Reference-front regret")
+
+        plt.tight_layout()
+        plt.savefig(
+            f"results/{env_id}/pref_regret_{algo}_{exp_note}_mean.png"
+        )
+        plt.close()
+
 def evaluate_preferences(
     run_id, seed, agent, env, algo, gamma, n_points=50, exp_note="", right_angled=True
 ):
@@ -396,6 +473,7 @@ def evaluate_preferences(
             agent,
             algo,
             env,
+            gamma,
             n_points=n_points,
             exp_note=exp_note,
             right_angled=right_angled,
@@ -415,7 +493,7 @@ def plot_mean_preferences(
     """
     if env.unwrapped.reward_dim == 2:
         plot_mean_line(
-            weights, mean_returns, std_returns, algo, env.spec.id, gamma, exp_note
+            weights, mean_returns, std_returns, algo, env, gamma, exp_note
         )
     elif env.unwrapped.reward_dim == 3:
         plot_mean_simplex(
@@ -423,7 +501,8 @@ def plot_mean_preferences(
             mean_returns,
             std_returns,
             algo,
-            env.spec.id,
+            env,
+            gamma,
             exp_note,
             right_angled=right_angled,
         )
