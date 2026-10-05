@@ -5,19 +5,36 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 from scipy.stats import pearsonr, spearmanr
 
-def get_dst_treasure_returns(gamma):
-    treasures = np.array([0.7, 8.2, 11.5, 14.0, 15.1, 16.1, 19.6, 20.3, 22.4, 23.7])
-    steps = np.array([1, 3, 5, 7, 8, 9, 13, 14, 17, 19])
+DST_TREASURES = np.array([0.7, 8.2, 11.5, 14.0, 15.1, 16.1, 19.6, 20.3, 22.4, 23.7])
+DST_STEPS = np.array([1, 3, 5, 7, 8, 9, 13, 14, 17, 19])
 
-    treasure_returns = gamma ** (steps - 1) * treasures
+def get_dst_treasure_returns(gamma):
+
+    treasure_returns = gamma ** (DST_STEPS - 1) * DST_TREASURES
 
     if gamma == 1.0:
-        time_returns = -steps.astype(float)
+        time_returns = -DST_STEPS.astype(float)
     else:
-        time_returns = -(1 - gamma**steps) / (1 - gamma)
+        time_returns = -(1 - gamma**DST_STEPS) / (1 - gamma)
 
     return np.column_stack((treasure_returns, time_returns))
 
+def convert_dst_to_outcomes(mean_returns, gamma):
+    treasure_returns = get_dst_treasure_returns(gamma)
+
+    distances = np.linalg.norm(
+        mean_returns[:, None, :] - treasure_returns[None, :, :],
+        axis=2,
+    )
+
+    treasure_indices = np.argmin(distances, axis=1)
+
+    return np.column_stack(
+        [
+            DST_TREASURES[treasure_indices],
+            -DST_STEPS[treasure_indices],
+        ]
+    )
 
 def sample_line(n_points):
     return np.linspace(0, 1, n_points)
@@ -252,6 +269,37 @@ def plot_mean_line(weights, mean_returns, std_returns, algo, env, gamma, exp_not
         plt.grid(True)
         plt.tight_layout()
         plt.savefig(f"results/{env_id}/pref_regret_{algo}_{exp_note}_mean.png")
+        plt.close()
+
+        outcome_returns = np.column_stack([
+            DST_TREASURES[learned_treasures - 1],
+            -DST_STEPS[learned_treasures - 1],
+        ])
+
+        plt.figure(figsize=(7, 5))
+
+        plt.plot(
+            t,
+            outcome_returns[:, 0],
+            label="Treasure value",
+        )
+
+        plt.plot(
+            t,
+            outcome_returns[:, 1],
+            label="Negative steps",
+        )
+
+        plt.xlabel("Treasure value weight $w_0$")
+        plt.ylabel("Outcome")
+        plt.legend()
+        plt.grid(True)
+        plt.tight_layout()
+
+        plt.savefig(
+            f"results/{env_id}/pref_line_{algo}_{exp_note}_outcome_space.png"
+        )
+
         plt.close()
 
 
