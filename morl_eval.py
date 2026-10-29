@@ -125,7 +125,7 @@ def main(run_pattern: str):
     num_eval_weights = 1000
     num_eval_episodes = 100    
     num_envs = num_eval_episodes
-    if "deep-sea-treasure" or "DST" in run_pattern:
+    if "deep-sea-treasure" in run_pattern or "DST" in run_pattern:
         env_id = "deep-sea-treasure-v0"
         ref_point = np.array([0.0, -50.0])
         reward_size = 2
