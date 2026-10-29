@@ -121,6 +121,7 @@ def run_ppo(
     gae_lambda: float = 0.95,
     surrogate_clip_threshold: float = 0.2,
     entropy_loss_coefficient: float = 0.0,
+    entropy_anneal: bool = False,
     policy_gradient_loss_coefficient: float = 1.0,
     value_function_loss_coefficient: float = 0.5,
     normalize_advantages: bool = True,
@@ -170,6 +171,7 @@ def run_ppo(
 
         # Loss function coefficients
         entropy_loss_coefficient (float): Coefficient for the entropy term in the loss.
+        entropy_anneal (bool): Whether to anneal entropy.
         value_function_loss_coefficient (float): Coefficient for the value function loss.
 
         # Advanced PPO parameters
@@ -314,11 +316,13 @@ def run_ppo(
         "gae_lambda": gae_lambda,
         "surrogate_clip_threshold": surrogate_clip_threshold,
         "entropy_loss_coefficient": entropy_loss_coefficient,
+        "entropy_anneal": entropy_anneal,
         "value_function_loss_coefficient": value_function_loss_coefficient,
         "policy_gradient_loss_coefficient": policy_gradient_loss_coefficient,
         "max_grad_norm": max_grad_norm,
         "update_epochs": update_epochs,
         "num_minibatches": num_minibatches,
+        "normalize_rewards": normalize_rewards,
         "normalize_advantages": normalize_advantages,
         "reward_rms": reward_rms if normalize_rewards else None,
         "clip_value_function_loss": clip_value_function_loss,
@@ -346,6 +350,7 @@ def run_ppo(
         gae_lambda=gae_lambda,
         surrogate_clip_threshold=surrogate_clip_threshold,
         entropy_loss_coefficient=entropy_loss_coefficient,
+        entropy_anneal=entropy_anneal,
         value_function_loss_coefficient=value_function_loss_coefficient,
         policy_gradient_loss_coefficient = policy_gradient_loss_coefficient,
         max_grad_norm=max_grad_norm,
@@ -404,6 +409,7 @@ def run_ppo(
             "gae_lambda": gae_lambda,
             "surrogate_clip_threshold": surrogate_clip_threshold,
             "entropy_loss_coefficient": entropy_loss_coefficient,
+            "entropy_anneal": entropy_anneal,
             "value_function_loss_coefficient": value_function_loss_coefficient,
             "policy_gradient_loss_coefficient": policy_gradient_loss_coefficient,
             "normalize_advantages": normalize_advantages,

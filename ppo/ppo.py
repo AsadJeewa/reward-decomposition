@@ -31,7 +31,7 @@ class LinearLRSchedule:
 
 
 class PPOLogger:
-    def __init__(self, run_name=None, use_tensorboard=False, use_wandb=False, project_name="MORL-Baselines", config=None, reward_size = 1):
+    def __init__(self, run_name=None, use_tensorboard=False, use_wandb=False, entity="rl_lab", project_name="MORL-Baselines", config=None, reward_size = 1):
         self.use_tensorboard = use_tensorboard
         self.use_wandb = use_wandb
         self.global_steps = []
@@ -40,6 +40,7 @@ class PPOLogger:
             self.writer = SummaryWriter(f"runs/{run_name}")
         if self.use_wandb:
             wandb.init(
+                entity=entity,
                 project=project_name,
                 name=run_name,
                 config=config,
@@ -150,6 +151,7 @@ class PPO:
         gae_lambda=0.95,
         surrogate_clip_threshold=0.2,
         entropy_loss_coefficient=0.001,
+        entropy_anneal=False,
         policy_gradient_loss_coefficient=2.0,
         value_function_loss_coefficient=0.5,
         max_grad_norm=0.5,
@@ -251,6 +253,8 @@ class PPO:
         self.gae_lambda = gae_lambda
         self.surrogate_clip_threshold = surrogate_clip_threshold
         self.entropy_loss_coefficient = entropy_loss_coefficient
+        self.initial_entropy_coef = entropy_loss_coefficient
+        self.entropy_anneal=entropy_anneal
         self.policy_gradient_loss_coefficient = policy_gradient_loss_coefficient
         self.value_function_loss_coefficient = value_function_loss_coefficient
         self.max_grad_norm = max_grad_norm
@@ -423,6 +427,10 @@ class PPO:
                 current_weights,
                 current_negatives
             ) = self.collect_rollouts(next_observation, is_next_observation_terminal, is_next_observation_truncated, current_weights, current_negatives)
+
+            if self.entropy_anneal:
+                frac = max(0.1, 1.0 - update / (0.5 * num_policy_updates))
+                self.entropy_loss_coefficient = self.initial_entropy_coef * frac
 
             update_results = self.update_policy(
                 batch_observations,
